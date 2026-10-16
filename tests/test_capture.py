@@ -15,7 +15,8 @@ def test_is_flat():
 
 def test_too_small_rect_raises(monkeypatch):
     monkeypatch.setattr(capture, "window_rect", lambda h: (0, 0, 150, 300))
-    with pytest.raises(UserFacingError, match="too small"):
+    monkeypatch.setattr(capture, "_window_title", lambda h: "Tiny flyout")
+    with pytest.raises(UserFacingError, match="Tiny flyout.*too small"):
         capture_window(123)
 
 

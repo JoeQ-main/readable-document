@@ -10,28 +10,49 @@ from .window_finder import Candidate
 
 SHELL_CLASSES = frozenset({
     "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
     "Progman",
     "WorkerW",
     "Windows.UI.Core.CoreWindow",
     "NotifyIconOverflowWindow",
+    # Windows 11 shell flyouts: the tray overflow (opened to reach this very icon),
+    # Start/search hosts, and XAML popups. All titled, visible and not ours.
+    "TopLevelWindowForOverflowXamlIsland",
+    "XamlExplorerHostIslandWindow",
+    "Xaml_WindowedPopupClass",
+    "#32768",  # popup menus
+    "tooltips_class32",
 })
 ICON_SIZE = 64
 POLL_SECONDS = 0.5
+MIN_CANDIDATE_SIDE = 200  # same floor as capture.MIN_SIDE: smaller windows cannot be read anyway
+
+WindowEntry = tuple[int, str, str, int, bool, int, int]  # hwnd, title, class, pid, visible, width, height
 
 
-WindowEntry = tuple[int, str, str, int, bool]  # hwnd, title, class, pid, visible
-
-
-def accept_window(title: str, cls: str, pid: int, own_pid: int, visible: bool) -> bool:
-    return bool(title) and visible and cls not in SHELL_CLASSES and pid != own_pid
+def accept_window(title: str, cls: str, pid: int, own_pid: int, visible: bool,
+                  width: int | None = None, height: int | None = None) -> bool:
+    if not title or not visible or cls in SHELL_CLASSES or pid == own_pid:
+        return False
+    if width is not None and height is not None:
+        if width < MIN_CANDIDATE_SIDE or height < MIN_CANDIDATE_SIDE:
+            return False
+    return True
 
 
 def pick_topmost(entries: list[WindowEntry], own_pid: int) -> Candidate | None:
     """First acceptable window in a top-to-bottom Z-order listing."""
-    for hwnd, title, cls, pid, visible in entries:
-        if accept_window(title, cls, pid, own_pid, visible):
+    for hwnd, title, cls, pid, visible, width, height in entries:
+        if accept_window(title, cls, pid, own_pid, visible, width, height):
             return Candidate(hwnd, title, pid, cls)
     return None
+
+
+def _window_size(hwnd: int) -> tuple[int, int]:
+    import win32gui
+
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    return right - left, bottom - top
 
 
 def _is_cloaked(hwnd: int) -> bool:
@@ -56,7 +77,9 @@ def find_topmost_window() -> Candidate | None:
         try:
             visible = bool(win32gui.IsWindowVisible(hwnd)) and not _is_cloaked(hwnd)
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            entries.append((hwnd, win32gui.GetWindowText(hwnd), win32gui.GetClassName(hwnd), pid, visible))
+            width, height = _window_size(hwnd)
+            entries.append((hwnd, win32gui.GetWindowText(hwnd), win32gui.GetClassName(hwnd),
+                            pid, visible, width, height))
         except Exception:
             pass
 
@@ -99,9 +122,10 @@ class ForegroundTracker:
                 cls = win32gui.GetClassName(hwnd)
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
                 visible = bool(win32gui.IsWindowVisible(hwnd))
+                width, height = _window_size(hwnd)
             except Exception:
                 continue
-            if accept_window(title, cls, pid, own_pid, visible):
+            if accept_window(title, cls, pid, own_pid, visible, width, height):
                 with self._lock:
                     self._candidate = Candidate(hwnd, title, pid, cls)
 

@@ -77,12 +77,25 @@ def _grab_screen(hwnd: int, rect: tuple[int, int, int, int]) -> Image.Image:
     return ImageGrab.grab(bbox=rect, all_screens=True)
 
 
+def _window_title(hwnd: int) -> str:
+    import win32gui
+
+    try:
+        return win32gui.GetWindowText(hwnd)
+    except Exception:
+        return ""
+
+
 def capture_window(hwnd: int) -> tuple[Image.Image, str]:
     """Return (image, method); method is "window" (PrintWindow) or "screen" (fallback)."""
     left, top, right, bottom = window_rect(hwnd)
     width, height = right - left, bottom - top
     if width < MIN_SIDE or height < MIN_SIDE:
-        raise UserFacingError("The window is too small to read.")
+        title = _window_title(hwnd) or "The chosen window"
+        raise UserFacingError(
+            f"{title!r} is too small to read ({width}x{height}). "
+            "Bring the document window to the front, then click Read document."
+        )
 
     try:
         image = _print_window(hwnd, width, height)
