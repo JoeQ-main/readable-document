@@ -56,6 +56,14 @@ def test_ocr_heading_by_height():
     assert blocks[0] == Block("heading", "Big", 2)  # 14 >= 1.3*10, < 1.6*10
 
 
+def test_ocr_reference_height_is_weighted_by_text_length():
+    # Many short UI-chrome lines must not make ordinary body lines look like headings.
+    chrome = [L(word, 10 * i, h=8) for i, word in enumerate(["File", "Edit", "View", "Help", "Tabs"])]
+    body = [L("x" * 60 + ".", 100, h=12), L("y" * 60 + ".", 113, h=12)]
+    blocks = group_lines(chrome + body)
+    assert all(b.kind == "paragraph" for b in blocks if len(b.text) > 20)
+
+
 def test_ocr_all_caps_short_line_is_heading():
     blocks = group_lines([L("SECTION TWO", 0), L("normal text", 30)])
     assert blocks[0] == Block("heading", "SECTION TWO", 3)

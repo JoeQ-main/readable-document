@@ -16,6 +16,13 @@ def test_safe_filename(title, expected):
     assert safe_filename(title) == expected
 
 
+def test_api_exposes_only_methods_to_the_js_bridge(sample_doc):
+    # pywebview serializes every public attribute of js_api; a native window there recurses forever.
+    api = Api(sample_doc, dialog=lambda d, n: None)
+    public = [name for name in dir(api) if not name.startswith("_")]
+    assert public and all(callable(getattr(api, name)) for name in public)
+
+
 def test_api_save_writes_html_to_chosen_path(tmp_path, sample_doc):
     chosen = tmp_path / "out.html"
     api = Api(sample_doc, dialog=lambda d, name: chosen)

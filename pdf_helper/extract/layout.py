@@ -6,7 +6,6 @@ turns a reading-ordered list of lines into headings, paragraphs and list items.
 
 import re
 from dataclasses import dataclass
-from statistics import median
 
 from .model import Block
 
@@ -75,6 +74,19 @@ def _heading_level(line: Line, text: str, body_size: float | None, ref_height: f
     return 0
 
 
+def _reference_height(lines: list[Line]) -> float:
+    """Median line height weighted by text length, so long body lines dominate
+    over many short UI-chrome lines in a window capture."""
+    weighted = sorted((line.height, max(1, len(line.text.strip()))) for line in lines)
+    total = sum(weight for _, weight in weighted)
+    running = 0
+    for height, weight in weighted:
+        running += weight
+        if running * 2 >= total:
+            return height
+    return weighted[-1][0]
+
+
 def _join(previous: str, text: str) -> str:
     if previous.endswith("-") and text[:1].islower():
         return previous[:-1] + text
@@ -89,7 +101,7 @@ def group_lines(lines: list[Line], body_size: float | None = None) -> list[Block
     """
     if not lines:
         return []
-    ref_height = median(line.height for line in lines)
+    ref_height = _reference_height(lines)
     blocks: list[Block] = []
     paragraph: str | None = None
 

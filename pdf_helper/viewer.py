@@ -30,12 +30,17 @@ class Api:
     def __init__(self, doc: Document, dialog: Dialog | None = None):
         self._doc = doc
         self._dialog = dialog or self._native_dialog
-        self.window = None  # set by open_document
+        # Private on purpose: pywebview serializes every public attribute of js_api
+        # into the page, and a native window object recurses forever.
+        self._window = None  # set by open_document
+
+    def attach(self, window) -> None:
+        self._window = window
 
     def _native_dialog(self, directory: Path, filename: str) -> Path | None:
         import webview
 
-        result = self.window.create_file_dialog(
+        result = self._window.create_file_dialog(
             webview.SAVE_DIALOG, directory=str(directory), save_filename=filename
         )
         if not result:
@@ -63,11 +68,12 @@ def open_document(doc: Document):
 
     api = Api(doc)
     html = render(doc, load_prefs(settings_path()))
-    api.window = webview.create_window(
+    window = webview.create_window(
         title=f"Readable: {doc.title}",
         html=html,
         js_api=api,
         width=WINDOW_WIDTH,
         height=WINDOW_HEIGHT,
     )
-    return api.window
+    api.attach(window)
+    return window
