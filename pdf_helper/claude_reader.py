@@ -4,6 +4,7 @@ items as structured JSON that the reading window renders."""
 
 import base64
 import io
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Literal
 
 import anthropic
@@ -21,6 +22,8 @@ MAX_IMAGE_EDGE = 1568  # the API downsizes beyond this anyway; do it here so the
 MAX_IMAGE_BYTES = 4_500_000
 MAX_PDF_PAGES = 600
 MAX_PDF_BYTES = 30 * 1024 * 1024
+CHUNK_PAGES = 15  # pages per request: keeps each transcription well under the output limit
+MAX_WORKERS = 4  # chunk requests in flight at once
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 SYSTEM_PROMPT = """You transcribe documents for a reading tool that restyles them for easier reading.
@@ -39,6 +42,11 @@ Rules:
 - "title" is the document's own title if one is visible, else a short descriptive title."""
 
 PDF_INSTRUCTION = "Transcribe this entire PDF into blocks, from the first page to the last."
+PDF_CHUNK_INSTRUCTION = (
+    "This PDF holds pages {first} to {last} of {total} of a longer document. Transcribe all of "
+    "these pages into blocks. If the first page starts mid-paragraph, begin with that partial "
+    "paragraph as it appears; if the last page ends mid-paragraph, end with the partial paragraph."
+)
 IMAGE_INSTRUCTION = "Transcribe the document content visible in this image into blocks."
 
 MISSING_KEY_MESSAGE = (
@@ -129,13 +137,58 @@ def _ask(content: list[dict]) -> ParsedDocument:
     return response.parsed_output
 
 
-def _document(parsed: ParsedDocument, title: str, source_label: str, via_image: bool) -> Document:
-    blocks = [Block(b.kind, b.text.strip(), b.level if b.kind == "heading" else 0)
-              for b in parsed.blocks if b.text.strip()]
+def _blocks(parsed: ParsedDocument) -> list[Block]:
+    return [Block(b.kind, b.text.strip(), b.level if b.kind == "heading" else 0)
+            for b in parsed.blocks if b.text.strip()]
+
+
+def _join_chunks(chunks: list[list[Block]]) -> list[Block]:
+    """Concatenate per-chunk blocks, joining a paragraph that continues across the boundary."""
+    merged: list[Block] = []
+    for blocks in chunks:
+        if (merged and blocks and merged[-1].kind == "paragraph" and blocks[0].kind == "paragraph"
+                and blocks[0].text[:1].islower()):
+            previous = merged.pop()
+            joiner = "" if previous.text.endswith("-") else " "
+            text = previous.text.rstrip("-") + joiner + blocks[0].text
+            merged.append(Block("paragraph", text))
+            merged.extend(blocks[1:])
+        else:
+            merged.extend(blocks)
+    return merged
+
+
+def _document(blocks: list[Block], title: str, source_label: str, via_image: bool) -> Document:
     if not blocks:
         raise UserFacingError("No readable text was found.")
     return Document(title=title, source_label=f"{source_label} — read by Claude ({MODEL})",
                     blocks=blocks, via_ocr=via_image)
+
+
+def _split_pdf(data: bytes, pages: int) -> list[tuple[int, int, bytes]]:
+    """(first_page, last_page, pdf_bytes) per chunk of at most CHUNK_PAGES pages."""
+    if pages <= CHUNK_PAGES:
+        return [(1, pages, data)]
+    import pymupdf
+
+    chunks = []
+    with pymupdf.open(stream=data, filetype="pdf") as source:
+        for start in range(0, pages, CHUNK_PAGES):
+            end = min(start + CHUNK_PAGES, pages)
+            part = pymupdf.open()
+            part.insert_pdf(source, from_page=start, to_page=end - 1)
+            chunks.append((start + 1, end, part.tobytes()))
+            part.close()
+    return chunks
+
+
+def _pdf_content(pdf_bytes: bytes, instruction: str) -> list[dict]:
+    return [
+        {"type": "document",
+         "source": {"type": "base64", "media_type": "application/pdf",
+                    "data": base64.standard_b64encode(pdf_bytes).decode("ascii")}},
+        {"type": "text", "text": instruction},
+    ]
 
 
 def read_pdf(data: bytes, title: str, source_label: str) -> Document:
@@ -144,13 +197,18 @@ def read_pdf(data: bytes, title: str, source_label: str) -> Document:
     pages = _pdf_page_count(data)
     if pages > MAX_PDF_PAGES:
         raise UserFacingError(f"This PDF has {pages} pages; the Claude API reads at most {MAX_PDF_PAGES}.")
-    content = [
-        {"type": "document",
-         "source": {"type": "base64", "media_type": "application/pdf",
-                    "data": base64.standard_b64encode(data).decode("ascii")}},
-        {"type": "text", "text": PDF_INSTRUCTION},
-    ]
-    return _document(_ask(content), title, source_label, via_image=False)
+    chunks = _split_pdf(data, pages)
+    if len(chunks) == 1:
+        return _document(_blocks(_ask(_pdf_content(data, PDF_INSTRUCTION))), title, source_label, False)
+
+    def read_chunk(chunk: tuple[int, int, bytes]) -> list[Block]:
+        first, last, part = chunk
+        instruction = PDF_CHUNK_INSTRUCTION.format(first=first, last=last, total=pages)
+        return _blocks(_ask(_pdf_content(part, instruction)))
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        per_chunk = list(pool.map(read_chunk, chunks))
+    return _document(_join_chunks(per_chunk), title, source_label, False)
 
 
 def read_image(image: Image.Image, title: str, source_label: str) -> Document:
@@ -161,4 +219,4 @@ def read_image(image: Image.Image, title: str, source_label: str) -> Document:
                     "data": base64.standard_b64encode(data).decode("ascii")}},
         {"type": "text", "text": IMAGE_INSTRUCTION},
     ]
-    return _document(_ask(content), title, source_label, via_image=True)
+    return _document(_blocks(_ask(content)), title, source_label, via_image=True)

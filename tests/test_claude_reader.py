@@ -130,6 +130,43 @@ def test_api_errors_are_user_facing(monkeypatch, error, fragment):
         read_image(Image.new("RGB", (300, 300)), "t", "s")
 
 
+def test_long_pdf_is_read_in_page_chunks_and_joined(monkeypatch):
+    # 7 pages with a chunk size of 3 -> pages 1-3, 4-6, 7; blocks come back in page order
+    # and a paragraph split across a chunk boundary is joined when it continues lowercase.
+    monkeypatch.setattr(claude_reader, "CHUNK_PAGES", 3)
+    monkeypatch.setattr(claude_reader, "MAX_WORKERS", 2)
+
+    class ChunkedMessages(FakeMessages):
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            data = base64.standard_b64decode(kwargs["messages"][0]["content"][0]["source"]["data"])
+            with pymupdf.open(stream=data, filetype="pdf") as pdf:
+                first = pdf[0].get_text().strip()
+                n = pdf.page_count
+            if first == "page 1":
+                blocks = [ParsedBlock(kind="heading", level=1, text="Title"),
+                          ParsedBlock(kind="paragraph", level=0, text="ends mid")]
+            elif first == "page 4":
+                blocks = [ParsedBlock(kind="paragraph", level=0, text="sentence here."),
+                          ParsedBlock(kind="paragraph", level=0, text=f"chunk of {n} pages")]
+            else:
+                blocks = [ParsedBlock(kind="paragraph", level=0, text=f"Last chunk of {n} page")]
+            return parsed(blocks, title="Title")
+
+    client = FakeClient()
+    client.messages = ChunkedMessages()
+    client.beta = SimpleNamespace(messages=client.messages)
+    monkeypatch.setattr(claude_reader, "client_factory", lambda: client)
+
+    doc = read_pdf(small_pdf(pages=7), "long", "src")
+    assert [b.text for b in doc.blocks] == [
+        "Title", "ends mid sentence here.", "chunk of 3 pages", "Last chunk of 1 page"]
+    assert len(client.messages.calls) == 3
+    instructions = [c["messages"][0]["content"][-1]["text"] for c in client.messages.calls]
+    assert any("pages 1 to 3 of 7" in t for t in instructions)
+    assert any("pages 7 to 7 of 7" in t for t in instructions)
+
+
 def test_pdf_too_long_is_rejected_before_sending(fake, monkeypatch):
     monkeypatch.setattr(claude_reader, "MAX_PDF_PAGES", 2)
     with pytest.raises(UserFacingError, match="pages"):
