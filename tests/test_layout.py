@@ -66,6 +66,19 @@ def test_uniform_loose_spacing_keeps_lines_separate():
     assert [b.text for b in group_lines(lines)] == [f"Item {i}" for i in range(5)]
 
 
+def test_order_reading_separates_narrow_sidebar_from_ragged_content():
+    # A web page: three full-width header lines, a 10%-wide sidebar, and a content
+    # column where most lines are short, so the column's right half is thinly covered.
+    headers = [col(f"Header {i}", 0, 1000, 12 * i) for i in range(3)]
+    sidebar = [col(f"Side {i}", 0, 100, 50 + 12 * i) for i in range(30)]
+    content = [col(f"Body {i}", 400, 600 if i % 7 else 1000, 50 + 12 * i) for i in range(70)]
+    mixed = headers + [x for pair in zip(sidebar, content) for x in pair] + content[30:]
+    texts = [l.text for l in order_reading(mixed)]
+    assert texts[:3] == ["Header 0", "Header 1", "Header 2"]
+    assert texts[3:33] == [l.text for l in sidebar]
+    assert texts[33:] == [l.text for l in content]
+
+
 def test_order_reading_handles_tiny_inputs():
     assert order_reading([]) == []
     one = [col("only", 0, 100, 0)]

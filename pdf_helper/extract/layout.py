@@ -75,8 +75,9 @@ def _heading_level(line: Line, text: str, body_size: float | None, ref_height: f
 
 
 COLUMN_BINS = 200
-GUTTER_COVER_FRACTION = 0.15  # a bin crossed by fewer than this share of lines is empty space
-COLUMN_MIN_FRACTION = 0.15  # a covered run narrower than this share of the width is not a column
+GUTTER_COVER_FRACTION = 0.05  # a bin crossed by no more than this share of lines is empty space...
+GUTTER_MAX_CROSSING = 2  # ...or by no more than this many lines (titles and footers span columns)
+COLUMN_MIN_FRACTION = 0.08  # a covered run narrower than this share of the width is not a column
 COLUMN_HIT_FRACTION = 0.2  # a line reaching this far into a second column spans both
 PITCH_TOLERANCE = 1.3  # a line pitch within this factor of the typical pitch is the same paragraph
 
@@ -99,11 +100,11 @@ def _detect_columns(lines: list[Line]) -> list[tuple[float, float]]:
         b1 = int((line.x1 - x_min) * scale)
         for b in range(max(0, b0), min(COLUMN_BINS - 1, b1) + 1):
             bins[b] += 1
-    threshold = GUTTER_COVER_FRACTION * len(lines)
+    threshold = max(GUTTER_MAX_CROSSING, GUTTER_COVER_FRACTION * len(lines))
     runs: list[tuple[int, int]] = []
     start = None
     for i, count in enumerate(bins):
-        covered = count >= threshold
+        covered = count > threshold
         if covered and start is None:
             start = i
         elif not covered and start is not None:
