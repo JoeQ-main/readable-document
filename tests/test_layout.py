@@ -50,6 +50,22 @@ def test_regular_line_pitch_overrides_box_height_noise():
     assert [b.text for b in blocks] == ["one two three four five six seven eight", "Nine ten eleven twelve"]
 
 
+def test_pitch_rule_survives_pages_of_two_line_paragraphs():
+    # Half the pitches are paragraph pitches here; the regular pitch must still win.
+    ys = [0, 27, 76, 103, 152, 179]  # three 2-line paragraphs: pitch 27 inside, 49 between
+    lines = [L("TITLE", -120, h=40)] + [L(f"line {i} words", y, h=20) for i, y in enumerate(ys)]
+    lines += [L("Footer", 400, h=20), L("Page 1", 500, h=20)]  # more large pitches than regular ones
+    assert [b.text for b in group_lines(lines)] == [
+        "TITLE", "line 0 words line 1 words", "line 2 words line 3 words", "line 4 words line 5 words",
+        "Footer", "Page 1"]
+
+
+def test_uniform_loose_spacing_keeps_lines_separate():
+    # Single lines three line-heights apart are separate items, not a paragraph.
+    lines = [L(f"Item {i}", 30 * i, h=10) for i in range(5)]
+    assert [b.text for b in group_lines(lines)] == [f"Item {i}" for i in range(5)]
+
+
 def test_order_reading_handles_tiny_inputs():
     assert order_reading([]) == []
     one = [col("only", 0, 100, 0)]

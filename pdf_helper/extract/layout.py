@@ -160,13 +160,20 @@ def order_reading(lines: list[Line]) -> list[Line]:
     return ordered
 
 
-def _typical_pitch(lines: list[Line]) -> float | None:
-    """Median top-to-top distance between consecutive lines, or None with too few lines
-    to tell regular spacing from paragraph breaks."""
+def _typical_pitch(lines: list[Line], ref_height: float) -> float | None:
+    """The page's regular line pitch (top-to-top distance within a paragraph), or None.
+
+    A low percentile rather than the median: on a page of short paragraphs most
+    pitches are paragraph pitches. A pitch of two line heights or more is blank-line
+    spacing, which separates lines rather than flowing them, so no pitch is returned.
+    """
     pitches = sorted(b.y0 - a.y0 for a, b in zip(lines, lines[1:]) if b.y0 > a.y0)
     if len(pitches) < 3:
         return None
-    return pitches[len(pitches) // 2]
+    pitch = pitches[len(pitches) // 4]
+    if pitch >= 2.0 * ref_height:
+        return None
+    return pitch
 
 
 def _reference_height(lines: list[Line]) -> float:
@@ -197,7 +204,7 @@ def group_lines(lines: list[Line], body_size: float | None = None) -> list[Block
     if not lines:
         return []
     ref_height = _reference_height(lines)
-    typical_pitch = _typical_pitch(lines)
+    typical_pitch = _typical_pitch(lines, ref_height)
     blocks: list[Block] = []
     paragraph: str | None = None
 
