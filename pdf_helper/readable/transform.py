@@ -22,7 +22,7 @@ TAG_SPLIT = re.compile(r"(<[^>]+>)")
 
 LEAD_MAX_WORDS = 5
 LEAD_MAX_FRACTION = 0.4
-OCR_NOTE_HTML = '<span class="ocr-note">OCR text — may contain errors</span>'
+OCR_NOTE_HTML = '<span class="ocr-note">Read from an image — may contain errors</span>'
 
 
 def split_sentences(text: str) -> list[str]:

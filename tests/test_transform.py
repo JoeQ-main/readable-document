@@ -54,13 +54,13 @@ def test_render_escapes_and_structures(sample_doc):
     assert '<a href="#intro-0">Intro</a>' in html  # outline entry
     assert "<ul><li>one</li><li>two</li></ul>" in html.replace("\n", "")
     assert "--size: 19px" in html and 'data-dark="0"' in html
-    assert "OCR text" not in html
+    assert "may contain errors" not in html
 
 
 def test_render_ocr_note_and_source(sample_doc):
     doc = replace(sample_doc, via_ocr=True, source_label="captured from window: Foo")
     html = render(doc, DEFAULTS)
-    assert "OCR text" in html and "captured from window: Foo" in html
+    assert "Read from an image" in html and "may contain errors" in html and "captured from window: Foo" in html
 
 
 def test_render_no_headings_hides_outline(sample_doc):

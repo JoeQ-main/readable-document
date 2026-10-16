@@ -3,7 +3,7 @@
 A PDF opened from the web (often embedded in a course or portal page) exists
 nowhere on disk except the browser cache. Firefox's cache2 stores each response
 as a file whose content comes first, so a cached PDF starts with ``%PDF-``.
-The right entry is the one whose text contains the lines OCR'd from the screen.
+The right entry is the one whose text contains the lines transcribed from the screen.
 Everything stays local; nothing is fetched.
 """
 
@@ -11,8 +11,6 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-
-from .extract.layout import Line
 
 MIN_PDF_BYTES = 20_000
 MAX_ENTRIES = 200  # newest cache files examined
@@ -118,9 +116,9 @@ def find_matching_pdf(screen_lines: list[str], candidates: list[CachedPdf]) -> C
     return best
 
 
-def cached_pdf_for_screen(lines: list[Line]) -> tuple[bytes, str] | None:
-    """The cached PDF whose text matches the OCR'd screen, as (bytes, title)."""
-    match = find_matching_pdf([line.text for line in lines], cached_pdfs())
+def cached_pdf_for_screen(lines: list[str]) -> tuple[bytes, str] | None:
+    """The cached PDF whose text matches the transcribed screen, as (bytes, title)."""
+    match = find_matching_pdf(lines, cached_pdfs())
     if match is None:
         return None
     return match.data, pdf_title(match.data) or "Document from browser cache"

@@ -18,6 +18,10 @@ def _start_tray() -> None:
             return  # a pass is already running, or this is the second half of a double-click
         # The last real foreground window; failing that, whatever is on top of the Z-order.
         candidate = tracker.candidate or find_topmost_window()
+        try:
+            icon.notify("Reading with Claude… this can take a minute for long documents.", "Readable Document")
+        except Exception:  # notifications are best effort
+            pass
 
         def run() -> None:
             try:

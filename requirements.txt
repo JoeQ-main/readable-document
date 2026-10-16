@@ -1,7 +1,7 @@
+anthropic==1.15.0
 pymupdf==1.28.2
 pywebview==6.2.1
 pystray==0.19.5
 pillow==12.3.0
 pywin32==312
 psutil
-winocr==0.0.15
