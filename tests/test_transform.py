@@ -47,6 +47,13 @@ def test_mark_numbers_ignores_tag_attributes():
     assert mark_numbers('<b class="lead">In 2020</b>') == '<b class="lead">In <mark class="num">2020</mark></b>'
 
 
+def test_render_fragment_continues_heading_numbering():
+    from pdf_helper.readable.transform import render_fragment
+
+    body, outline = render_fragment([Block("heading", "Later", 3), Block("paragraph", "p")], heading_start=7)
+    assert '<h3 id="later-7">Later</h3>' in body and '<a href="#later-7">Later</a>' in outline
+
+
 def test_render_escapes_and_structures(sample_doc):
     html = render(sample_doc, DEFAULTS)
     assert "&lt;script&gt;" in html and "<script>alert" not in html

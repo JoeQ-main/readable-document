@@ -9,12 +9,55 @@ from PIL import Image
 from pdf_helper import claude_reader
 from pdf_helper.claude_reader import (
     MODEL,
+    ChunkJoiner,
     ParsedBlock,
     ParsedDocument,
+    iter_pdf_blocks,
     prepare_image,
     read_image,
     read_pdf,
 )
+
+
+def test_chunk_joiner_holds_back_last_paragraph_until_next_chunk():
+    joiner = ChunkJoiner()
+    first = joiner.push([Block("heading", "Title", 1), Block("paragraph", "ends mid")])
+    assert first == [Block("heading", "Title", 1)]  # the trailing paragraph waits
+    second = joiner.push([Block("paragraph", "sentence here."), Block("paragraph", "Next para.")])
+    assert second == [Block("paragraph", "ends mid sentence here.")]  # joined; "Next para." waits
+    third = joiner.push([Block("heading", "Section", 2), Block("list_item", "x")])
+    # Only a trailing paragraph is held back; a list item cannot continue on the next page.
+    assert third == [Block("paragraph", "Next para."), Block("heading", "Section", 2), Block("list_item", "x")]
+    assert joiner.flush() == []
+
+
+def test_chunk_joiner_hyphen_and_capital_rules():
+    joiner = ChunkJoiner()
+    joiner.push([Block("paragraph", "exam-")])
+    assert joiner.push([Block("paragraph", "ple text."), Block("paragraph", "Tail")]) == [
+        Block("paragraph", "example text.")]
+    assert joiner.push([Block("paragraph", "Capital start.")]) == [Block("paragraph", "Tail")]
+    assert joiner.flush() == [Block("paragraph", "Capital start.")]
+
+
+def test_iter_pdf_blocks_yields_page_ranges_in_order(monkeypatch):
+    monkeypatch.setattr(claude_reader, "CHUNK_PAGES", 3)
+    monkeypatch.setattr(claude_reader, "MAX_WORKERS", 2)
+
+    class Echo(FakeMessages):
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            instruction = kwargs["messages"][0]["content"][-1]["text"]
+            return parsed([ParsedBlock(kind="paragraph", level=0, text=instruction[:30])])
+
+    client = FakeClient()
+    client.messages = Echo()
+    client.beta = SimpleNamespace(messages=client.messages)
+    monkeypatch.setattr(claude_reader, "client_factory", lambda: client)
+
+    chunks = list(iter_pdf_blocks(small_pdf(pages=7)))
+    assert [(first, last, total) for first, last, total, _ in chunks] == [(1, 3, 7), (4, 6, 7), (7, 7, 7)]
+    assert all(len(blocks) == 1 for *_, blocks in chunks)
 from pdf_helper.errors import UserFacingError
 from pdf_helper.extract.model import Block
 

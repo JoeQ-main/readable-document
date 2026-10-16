@@ -5,7 +5,7 @@ items as structured JSON that the reading window renders."""
 import base64
 import io
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Literal
+from typing import Callable, Iterator, Literal
 
 import anthropic
 from PIL import Image
@@ -142,20 +142,33 @@ def _blocks(parsed: ParsedDocument) -> list[Block]:
             for b in parsed.blocks if b.text.strip()]
 
 
-def _join_chunks(chunks: list[list[Block]]) -> list[Block]:
-    """Concatenate per-chunk blocks, joining a paragraph that continues across the boundary."""
-    merged: list[Block] = []
-    for blocks in chunks:
-        if (merged and blocks and merged[-1].kind == "paragraph" and blocks[0].kind == "paragraph"
-                and blocks[0].text[:1].islower()):
-            previous = merged.pop()
-            joiner = "" if previous.text.endswith("-") else " "
-            text = previous.text.rstrip("-") + joiner + blocks[0].text
-            merged.append(Block("paragraph", text))
-            merged.extend(blocks[1:])
-        else:
-            merged.extend(blocks)
-    return merged
+class ChunkJoiner:
+    """Joins page chunks in order, holding back each chunk's trailing paragraph until
+    the next chunk shows whether it continues (a lowercase start means it does)."""
+
+    def __init__(self) -> None:
+        self._pending: Block | None = None
+
+    def push(self, blocks: list[Block]) -> list[Block]:
+        """Blocks that are final after adding this chunk."""
+        ready: list[Block] = []
+        blocks = list(blocks)
+        if self._pending is not None:
+            if blocks and blocks[0].kind == "paragraph" and blocks[0].text[:1].islower():
+                previous = self._pending.text
+                joiner = "" if previous.endswith("-") else " "
+                blocks[0] = Block("paragraph", previous.rstrip("-") + joiner + blocks[0].text)
+            else:
+                ready.append(self._pending)
+            self._pending = None
+        if blocks and blocks[-1].kind == "paragraph":
+            self._pending = blocks.pop()
+        ready.extend(blocks)
+        return ready
+
+    def flush(self) -> list[Block]:
+        pending, self._pending = self._pending, None
+        return [pending] if pending is not None else []
 
 
 def _document(blocks: list[Block], title: str, source_label: str, via_image: bool) -> Document:
@@ -191,7 +204,9 @@ def _pdf_content(pdf_bytes: bytes, instruction: str) -> list[dict]:
     ]
 
 
-def read_pdf(data: bytes, title: str, source_label: str) -> Document:
+def iter_pdf_blocks(data: bytes) -> Iterator[tuple[int, int, int, list[Block]]]:
+    """Yield (first_page, last_page, total_pages, blocks) per chunk, in page order,
+    each as soon as it is ready; chunks are requested MAX_WORKERS at a time."""
     if len(data) > MAX_PDF_BYTES:
         raise UserFacingError("This PDF is larger than the Claude API accepts (30 MB).")
     pages = _pdf_page_count(data)
@@ -199,7 +214,8 @@ def read_pdf(data: bytes, title: str, source_label: str) -> Document:
         raise UserFacingError(f"This PDF has {pages} pages; the Claude API reads at most {MAX_PDF_PAGES}.")
     chunks = _split_pdf(data, pages)
     if len(chunks) == 1:
-        return _document(_blocks(_ask(_pdf_content(data, PDF_INSTRUCTION))), title, source_label, False)
+        yield 1, pages, pages, _blocks(_ask(_pdf_content(data, PDF_INSTRUCTION)))
+        return
 
     def read_chunk(chunk: tuple[int, int, bytes]) -> list[Block]:
         first, last, part = chunk
@@ -207,8 +223,18 @@ def read_pdf(data: bytes, title: str, source_label: str) -> Document:
         return _blocks(_ask(_pdf_content(part, instruction)))
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        per_chunk = list(pool.map(read_chunk, chunks))
-    return _document(_join_chunks(per_chunk), title, source_label, False)
+        for (first, last, _), blocks in zip(chunks, pool.map(read_chunk, chunks)):
+            yield first, last, pages, blocks
+
+
+def read_pdf(data: bytes, title: str, source_label: str) -> Document:
+    """Whole document at once; the app streams chunks via iter_pdf_blocks instead."""
+    joiner = ChunkJoiner()
+    blocks: list[Block] = []
+    for *_, chunk in iter_pdf_blocks(data):
+        blocks.extend(joiner.push(chunk))
+    blocks.extend(joiner.flush())
+    return _document(blocks, title, source_label, False)
 
 
 def read_image(image: Image.Image, title: str, source_label: str) -> Document:

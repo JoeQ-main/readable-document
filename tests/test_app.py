@@ -1,3 +1,5 @@
+import pytest
+
 from pdf_helper import app
 from pdf_helper.app import run_read_pass, safe_read_pass
 from pdf_helper.errors import UserFacingError
@@ -15,16 +17,53 @@ def _doc(*texts):
     return Document("t", "s", [Block("paragraph", t) for t in texts], True)
 
 
-def test_run_read_pass_routes_pdf(monkeypatch, tmp_path):
+class FakeWindow:
+    def __init__(self):
+        self.appended = []
+        self.progress = []
+
+    def append(self, blocks):
+        self.appended.append(blocks)
+
+    def set_progress(self, text):
+        self.progress.append(text)
+
+
+def test_run_read_pass_streams_pdf_chunks_into_one_window(monkeypatch, tmp_path):
     f = tmp_path / "a.pdf"
     f.write_bytes(b"%PDF-x")
     monkeypatch.setattr(app, "resolve_source", lambda c: FileSource(f))
-    calls = []
-    monkeypatch.setattr(app, "read_pdf", lambda data, title, label: calls.append((data, title, label)) or "DOC")
+    seen = []
+
+    def chunks(data):
+        seen.append(data)
+        yield 1, 15, 32, [Block("heading", "Title", 1), Block("paragraph", "ends mid")]
+        yield 16, 30, 32, [Block("paragraph", "sentence here."), Block("paragraph", "Second.")]
+        yield 31, 32, 32, [Block("paragraph", "Last.")]
+
+    monkeypatch.setattr(app, "iter_pdf_blocks", chunks)
+    window = FakeWindow()
     opened = []
-    monkeypatch.setattr(app, "open_document", opened.append)
+    monkeypatch.setattr(app, "open_document", lambda doc: opened.append(doc) or window)
     run_read_pass(Candidate(1, "t", 2, "c"))
-    assert opened == ["DOC"] and calls == [(b"%PDF-x", "a", str(f))]
+    assert seen == [b"%PDF-x"]
+    assert opened[0].title == "a" and opened[0].blocks == [Block("heading", "Title", 1)]
+    assert window.appended == [
+        [Block("paragraph", "ends mid sentence here.")],
+        [Block("paragraph", "Second.")],
+        [Block("paragraph", "Last.")],
+    ]
+    assert window.progress[0] == "Read pages 1–15 of 32…" and window.progress[-1] == ""
+
+
+def test_run_read_pass_pdf_with_no_text_is_user_facing(monkeypatch, tmp_path):
+    f = tmp_path / "a.pdf"
+    f.write_bytes(b"%PDF-x")
+    monkeypatch.setattr(app, "resolve_source", lambda c: FileSource(f))
+    monkeypatch.setattr(app, "iter_pdf_blocks", lambda data: iter([(1, 1, 1, [])]))
+    monkeypatch.setattr(app, "open_document", lambda doc: FakeWindow())
+    with pytest.raises(UserFacingError, match="No readable text"):
+        run_read_pass(Candidate(1, "t", 2, "c"))
 
 
 def test_run_read_pass_routes_capture_with_label(monkeypatch):
@@ -50,14 +89,14 @@ def test_run_read_pass_prefers_cached_pdf_matching_the_screen(monkeypatch):
     monkeypatch.setattr(app, "read_image", lambda img, title, label: _doc("LINE"))
     seen = []
     monkeypatch.setattr(app, "cached_pdf_for_screen", lambda lines: seen.append(lines) or (b"%PDF-data", "2025 Publication 17"))
-    calls = []
-    monkeypatch.setattr(app, "read_pdf", lambda data, title, label: calls.append((data, title, label)) or "DOC")
+    monkeypatch.setattr(app, "iter_pdf_blocks", lambda data: iter([(1, 1, 1, [Block("paragraph", "Full.")])]))
     opened = []
-    monkeypatch.setattr(app, "open_document", opened.append)
+    monkeypatch.setattr(app, "open_document", lambda doc: opened.append(doc) or FakeWindow())
     run_read_pass(Candidate(7, "Course Page", 2, "c"))
-    assert seen == [["LINE"]] and opened == ["DOC"]
-    assert calls == [(b"%PDF-data", "2025 Publication 17",
-                      "2025 Publication 17 — full document from the browser cache, matched to the page on screen")]
+    assert seen == [["LINE"]] and len(opened) == 1
+    assert opened[0].title == "2025 Publication 17" and opened[0].blocks == [Block("paragraph", "Full.")]
+    assert opened[0].source_label.startswith(
+        "2025 Publication 17 — full document from the browser cache, matched to the page on screen")
 
 
 def test_safe_read_pass_shows_user_facing_error(monkeypatch):

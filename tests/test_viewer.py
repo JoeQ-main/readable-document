@@ -1,10 +1,35 @@
 import urllib.error
 import urllib.request
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from pdf_helper import viewer
-from pdf_helper.viewer import Api, PageServer, safe_filename
+from pdf_helper.extract.model import Block
+from pdf_helper.viewer import Api, PageServer, ReadingWindow, safe_filename
+
+
+def test_reading_window_appends_rendered_blocks_with_continuing_heading_ids():
+    calls = []
+    fake = SimpleNamespace(evaluate_js=lambda js: calls.append(js))
+    window = ReadingWindow(fake, heading_count=2)
+    window.append([Block("heading", "More", 2), Block("paragraph", "Text here."), Block("list_item", "i")])
+    assert len(calls) == 1 and calls[0].startswith("appendContent(")
+    body, outline = json.loads("[" + calls[0][len("appendContent("):-1] + "]")
+    assert '<h2 id="more-2">More</h2>' in body and "<ul><li>i</li></ul>" in body.replace("\n", "")
+    assert '<a href="#more-2">More</a>' in outline
+    assert window.heading_count == 3
+
+
+def test_reading_window_sets_progress_text():
+    calls = []
+    window = ReadingWindow(SimpleNamespace(evaluate_js=lambda js: calls.append(js)))
+    window.set_progress("Read pages 1–15 of 142…")
+    assert calls == ['setProgress("Read pages 1\\u201315 of 142\\u2026")']
+    window.set_progress("")
+    assert calls[-1] == 'setProgress("")'
 
 
 def test_page_server_serves_html_from_memory_by_token():

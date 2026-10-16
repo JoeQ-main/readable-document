@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from ..extract.model import Document
+from ..extract.model import Block, Document
 
 TEMPLATE_PATH = Path(__file__).parent / "template.html"
 
@@ -66,11 +66,12 @@ def _escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
-def _render_blocks(doc: Document) -> tuple[str, str]:
-    """Return (body_html, outline_html)."""
+def render_fragment(blocks: list[Block], heading_start: int = 0) -> tuple[str, str]:
+    """Return (body_html, outline_html) for blocks appended to an open page;
+    heading ids continue from heading_start so anchors stay unique."""
     body: list[str] = []
     outline: list[str] = []
-    heading_index = 0
+    heading_index = heading_start
     pending_items: list[str] = []
 
     def flush_list() -> None:
@@ -78,7 +79,7 @@ def _render_blocks(doc: Document) -> tuple[str, str]:
             body.append("<ul>" + "".join(pending_items) + "</ul>")
             pending_items.clear()
 
-    for block in doc.blocks:
+    for block in blocks:
         if block.kind == "list_item":
             pending_items.append(f"<li>{mark_numbers(_escape(block.text))}</li>")
             continue
@@ -107,7 +108,7 @@ def data_attrs(prefs: dict) -> str:
 
 
 def render(doc: Document, prefs: dict) -> str:
-    body, outline = _render_blocks(doc)
+    body, outline = render_fragment(doc.blocks)
     replacements = {
         "{{TITLE}}": html.escape(doc.title),
         "{{SOURCE}}": html.escape(doc.source_label),

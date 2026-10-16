@@ -1,5 +1,6 @@
 """The reading window: a pywebview window plus the JS bridge for Save and prefs."""
 
+import json
 import re
 import secrets
 import threading
@@ -7,8 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 
-from .extract.model import Document
-from .readable.transform import render
+from .extract.model import Block, Document
+from .readable.transform import render, render_fragment
 from .settings import load_prefs, save_prefs, settings_path
 
 WINDOW_WIDTH = 960
@@ -132,7 +133,26 @@ class Api:
         return save_prefs(prefs, settings_path())
 
 
-def open_document(doc: Document):
+class ReadingWindow:
+    """An open reading window that more blocks can be appended to while a long
+    document is still being read."""
+
+    def __init__(self, window, heading_count: int = 0):
+        self._window = window
+        self.heading_count = heading_count
+
+    def append(self, blocks: list[Block]) -> None:
+        if not blocks:
+            return
+        body, outline = render_fragment(blocks, heading_start=self.heading_count)
+        self.heading_count += sum(1 for b in blocks if b.kind == "heading")
+        self._window.evaluate_js(f"appendContent({json.dumps(body)}, {json.dumps(outline)})")
+
+    def set_progress(self, text: str) -> None:
+        self._window.evaluate_js(f"setProgress({json.dumps(text)})")
+
+
+def open_document(doc: Document) -> ReadingWindow:
     import webview
 
     api = Api(doc)
@@ -147,4 +167,4 @@ def open_document(doc: Document):
     )
     api.attach(window)
     window.events.closed += lambda: server.release(url)
-    return window
+    return ReadingWindow(window, heading_count=sum(1 for b in doc.blocks if b.kind == "heading"))

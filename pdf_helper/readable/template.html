@@ -74,6 +74,8 @@
 
   .source { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; line-height: 1.5; }
   .source .ocr-note { display: inline-block; margin-left: .75em; padding: 1px 8px; border-radius: 999px; background: var(--tint); color: var(--fg); }
+  .source .progress { display: block; margin-top: .4em; color: var(--accent); font-weight: 600; }
+  .source .progress:empty { display: none; }
 
   p { margin: 1.1em 0; }
   h1, h2, h3 {
@@ -113,8 +115,10 @@
   </ol>
 </nav>
 <main>
-  <header class="source"><span class="label">{{SOURCE}}</span>{{OCR_NOTE}}</header>
+  <header class="source"><span class="label">{{SOURCE}}</span>{{OCR_NOTE}}<span class="progress" id="progress"></span></header>
+  <div id="content">
 {{BODY}}
+  </div>
 </main>
 <script>
 (function () {
@@ -243,6 +247,20 @@
       case 'save': save(); break;
     }
   });
+
+  // Called from Python while a long document is still being read.
+  window.appendContent = function (bodyHtml, outlineHtml) {
+    document.getElementById('content').insertAdjacentHTML('beforeend', bodyHtml);
+    if (outlineHtml) {
+      var nav = document.getElementById('outline');
+      nav.querySelector('ol').insertAdjacentHTML('beforeend', outlineHtml);
+      if (nav.classList.contains('hidden')) { nav.classList.remove('hidden'); setOutline(true); }
+    }
+    if (prefs.bionic) bionic(true);  // only touches elements not yet processed
+  };
+  window.setProgress = function (text) {
+    document.getElementById('progress').textContent = text || '';
+  };
 
   prefs = readBaked();
   applyPrefs(prefs);
