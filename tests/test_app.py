@@ -56,6 +56,23 @@ def test_run_read_pass_streams_pdf_chunks_into_one_window(monkeypatch, tmp_path)
     assert window.progress[0] == "Read pages 1–15 of 32…" and window.progress[-1] == ""
 
 
+def test_failed_chunk_marks_open_window_and_reraises(monkeypatch, tmp_path):
+    f = tmp_path / "a.pdf"
+    f.write_bytes(b"%PDF-x")
+    monkeypatch.setattr(app, "resolve_source", lambda c: FileSource(f))
+
+    def chunks(data):
+        yield 1, 6, 30, [Block("heading", "Title", 1)]
+        raise UserFacingError("The Claude API rate limit was hit.")
+
+    monkeypatch.setattr(app, "iter_pdf_blocks", chunks)
+    window = FakeWindow()
+    monkeypatch.setattr(app, "open_document", lambda doc: window)
+    with pytest.raises(UserFacingError, match="rate limit"):
+        run_read_pass(Candidate(1, "t", 2, "c"))
+    assert window.progress[-1] == "Reading stopped after page 6 of 30: The Claude API rate limit was hit."
+
+
 def test_run_read_pass_pdf_with_no_text_is_user_facing(monkeypatch, tmp_path):
     f = tmp_path / "a.pdf"
     f.write_bytes(b"%PDF-x")

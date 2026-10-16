@@ -24,10 +24,11 @@ MAX_IMAGE_EDGE = 1568  # the API downsizes beyond this anyway; do it here so the
 MAX_IMAGE_BYTES = 4_500_000
 MAX_PDF_PAGES = 600
 MAX_PDF_BYTES = 30 * 1024 * 1024
-# Measured on Opus 5.5: a dense page is ~3,200 output tokens at ~150 tokens/s, so 6 pages
-# is ~2 minutes per request and stays far below the output cap; 8 in flight keeps a
-# 140-page document under ten minutes with the first pages on screen after the first chunk.
-CHUNK_PAGES = 6
+# Measured on Opus 5.5 with a 142-page publication, 6-page chunks, 8 in flight: first
+# chunk on screen at 90 s, all pages at 11 min. Pages appear in order, so one slow
+# table-heavy chunk (up to ~1,400 blocks) holds everything behind it; 4-page chunks
+# bound that tail and halve the first wait at the same total output.
+CHUNK_PAGES = 4
 MAX_WORKERS = 8
 
 

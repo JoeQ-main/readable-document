@@ -26,10 +26,17 @@ def show_pdf_progressively(data: bytes, title: str, source_label: str) -> None:
         else:
             window.append(blocks)
 
-    for _, last, total, chunk in iter_pdf_blocks(data):
-        deliver(joiner.push(chunk))
-        if window is not None:
-            window.set_progress(f"Read pages 1–{last} of {total}…" if last < total else "")
+    pages_done, pages_total = 0, 0
+    try:
+        for _, last, total, chunk in iter_pdf_blocks(data):
+            pages_done, pages_total = last, total
+            deliver(joiner.push(chunk))
+            if window is not None:
+                window.set_progress(f"Read pages 1–{last} of {total}…" if last < total else "")
+    except Exception as exc:
+        if window is not None:  # leave the partial document readable, but say why it stopped
+            window.set_progress(f"Reading stopped after page {pages_done} of {pages_total}: {exc}")
+        raise
     deliver(joiner.flush())
     if window is None:
         raise UserFacingError("No readable text was found.")

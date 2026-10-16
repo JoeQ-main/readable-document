@@ -56,10 +56,12 @@ in `shell:startup` to launch it at sign-in). A page icon appears in the tray.
   safety decline on one model is retried on another inside the same request.
 - Measured on Opus 5.5: a screen capture takes about 15 seconds and costs a
   few cents. A dense PDF page produces about 3,200 output tokens, so a
-  140-page publication is roughly 450k output tokens, about $12, and takes
-  under ten minutes. Long PDFs are read in 6-page chunks, eight at a time; the
-  reading window opens after the first chunk and fills in as the rest arrive,
-  with a progress line in the header.
+  142-page publication is roughly 450k output tokens, about $12; it took 11
+  minutes end to end with the first pages on screen after 90 seconds. Long
+  PDFs are read in 4-page chunks, eight at a time; the reading window opens
+  after the first chunk and fills in as the rest arrive, with a progress line
+  in the header. If a later chunk fails, the pages already shown stay readable
+  and the progress line says where and why reading stopped.
 
 ## How it finds the document, and what it captures
 
