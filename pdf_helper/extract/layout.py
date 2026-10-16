@@ -10,7 +10,8 @@ from statistics import median
 
 from .model import Block
 
-LIST_MARKER = re.compile(r"^(?:[•\-–*o]|\d+[.)]|[a-z][.)])\s+")
+#  is the Symbol-font bullet that Word-generated PDFs expose.
+LIST_MARKER = re.compile(r"^(?:[•\-–*o]|\d+[.)]|[a-z][.)])\s+")
 
 PARAGRAPH_GAP = 0.6  # gap / line height at which a paragraph ends
 HEADING_MAX_CHARS = 120

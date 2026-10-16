@@ -66,6 +66,7 @@ def test_list_items():
     assert strip_list_marker("1. apples") == "apples"
     assert strip_list_marker("a) apples") == "apples"
     assert strip_list_marker("o apples") == "apples"
+    assert strip_list_marker(" apples") == "apples"  # Symbol-font bullet from Word PDFs
     assert strip_list_marker("-apples") is None
     assert strip_list_marker("plain") is None
     blocks = group_lines([L("• one", 0), L("• two", 12)])
