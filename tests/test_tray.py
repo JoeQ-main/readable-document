@@ -1,5 +1,21 @@
-from pdf_helper.tray import accept_window, make_icon_image, pick_topmost
+from pdf_helper.tray import ReadGate, accept_window, make_icon_image, pick_topmost
 from pdf_helper.window_finder import Candidate
+
+
+def test_read_gate_ignores_second_click_of_a_double_click():
+    gate = ReadGate(debounce_seconds=1.0)
+    assert gate.try_acquire(now=10.0)
+    gate.release()
+    assert not gate.try_acquire(now=10.2)  # second WM_LBUTTONUP of a double-click
+    assert gate.try_acquire(now=11.5)
+
+
+def test_read_gate_ignores_clicks_while_a_pass_is_running():
+    gate = ReadGate(debounce_seconds=1.0)
+    assert gate.try_acquire(now=10.0)
+    assert not gate.try_acquire(now=30.0)  # still running
+    gate.release()
+    assert gate.try_acquire(now=31.5)
 
 
 def test_pick_topmost_skips_shell_hidden_and_own_windows():

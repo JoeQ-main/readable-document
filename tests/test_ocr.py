@@ -23,6 +23,15 @@ def test_lines_from_result_unions_word_boxes_and_sorts():
     assert (lines[0].x0, lines[0].y0, lines[0].x1, lines[0].y1) == (0, 0, 70, 12)
 
 
+def test_lines_from_result_orders_two_columns_left_then_right():
+    result = {"lines": []}
+    for i in range(6):
+        result["lines"].append({"text": f"right {i}", "words": [word("x", 300, 12 * i, 200, 10)]})
+        result["lines"].append({"text": f"left {i}", "words": [word("x", 0, 12 * i, 200, 10)]})
+    texts = [l.text for l in lines_from_result(result)]
+    assert texts == [f"left {i}" for i in range(6)] + [f"right {i}" for i in range(6)]
+
+
 def test_extract_too_little_text_raises(monkeypatch):
     monkeypatch.setattr(ocr, "recognizer", lambda img: {"lines": [{"text": "hi", "words": [word("hi", 0, 0)]}]})
     with pytest.raises(UserFacingError, match="No readable text"):

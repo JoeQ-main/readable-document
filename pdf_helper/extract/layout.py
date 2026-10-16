@@ -74,6 +74,101 @@ def _heading_level(line: Line, text: str, body_size: float | None, ref_height: f
     return 0
 
 
+COLUMN_BINS = 200
+GUTTER_COVER_FRACTION = 0.15  # a bin crossed by fewer than this share of lines is empty space
+COLUMN_MIN_FRACTION = 0.15  # a covered run narrower than this share of the width is not a column
+COLUMN_HIT_FRACTION = 0.2  # a line reaching this far into a second column spans both
+PITCH_TOLERANCE = 1.3  # a line pitch within this factor of the typical pitch is the same paragraph
+
+
+def _detect_columns(lines: list[Line]) -> list[tuple[float, float]]:
+    """Return column x-ranges (left to right), or [] when the text is single-column.
+
+    Uses a horizontal coverage histogram: gutters are x-ranges that almost no line
+    crosses, so a title spanning both columns does not hide them.
+    """
+    x_min = min(l.x0 for l in lines)
+    x_max = max(l.x1 for l in lines)
+    width = x_max - x_min
+    if width <= 0:
+        return []
+    bins = [0] * COLUMN_BINS
+    scale = (COLUMN_BINS - 1) / width
+    for line in lines:
+        b0 = int((line.x0 - x_min) * scale)
+        b1 = int((line.x1 - x_min) * scale)
+        for b in range(max(0, b0), min(COLUMN_BINS - 1, b1) + 1):
+            bins[b] += 1
+    threshold = GUTTER_COVER_FRACTION * len(lines)
+    runs: list[tuple[int, int]] = []
+    start = None
+    for i, count in enumerate(bins):
+        covered = count >= threshold
+        if covered and start is None:
+            start = i
+        elif not covered and start is not None:
+            runs.append((start, i - 1))
+            start = None
+    if start is not None:
+        runs.append((start, COLUMN_BINS - 1))
+    columns = [(x_min + a / scale, x_min + (b + 1) / scale) for a, b in runs
+               if (b - a + 1) >= COLUMN_MIN_FRACTION * COLUMN_BINS]
+    return columns if len(columns) >= 2 else []
+
+
+def _column_of(line: Line, columns: list[tuple[float, float]]) -> int | None:
+    """Index of the column a line belongs to, or None when it spans several."""
+    hits = []
+    best, best_overlap = 0, -1.0
+    for i, (c0, c1) in enumerate(columns):
+        overlap = max(0.0, min(line.x1, c1) - max(line.x0, c0))
+        if overlap > COLUMN_HIT_FRACTION * (c1 - c0):
+            hits.append(i)
+        if overlap > best_overlap:
+            best, best_overlap = i, overlap
+    if len(hits) >= 2:
+        return None
+    return hits[0] if hits else best
+
+
+def order_reading(lines: list[Line]) -> list[Line]:
+    """Sort lines into reading order: top-to-bottom within a column, columns left
+    to right, with full-width lines (titles, footers) splitting the page into bands."""
+    by_y = sorted(lines, key=lambda l: (l.y0, l.x0))
+    if len(by_y) < 4:
+        return by_y
+    columns = _detect_columns(by_y)
+    if not columns:
+        return by_y
+
+    ordered: list[Line] = []
+    band: list[list[Line]] = [[] for _ in columns]
+
+    def flush() -> None:
+        for column_lines in band:
+            ordered.extend(column_lines)
+            column_lines.clear()
+
+    for line in by_y:
+        index = _column_of(line, columns)
+        if index is None:  # spans the columns: everything above it reads first
+            flush()
+            ordered.append(line)
+        else:
+            band[index].append(line)
+    flush()
+    return ordered
+
+
+def _typical_pitch(lines: list[Line]) -> float | None:
+    """Median top-to-top distance between consecutive lines, or None with too few lines
+    to tell regular spacing from paragraph breaks."""
+    pitches = sorted(b.y0 - a.y0 for a, b in zip(lines, lines[1:]) if b.y0 > a.y0)
+    if len(pitches) < 3:
+        return None
+    return pitches[len(pitches) // 2]
+
+
 def _reference_height(lines: list[Line]) -> float:
     """Median line height weighted by text length, so long body lines dominate
     over many short UI-chrome lines in a window capture."""
@@ -102,6 +197,7 @@ def group_lines(lines: list[Line], body_size: float | None = None) -> list[Block
     if not lines:
         return []
     ref_height = _reference_height(lines)
+    typical_pitch = _typical_pitch(lines)
     blocks: list[Block] = []
     paragraph: str | None = None
 
@@ -116,7 +212,18 @@ def group_lines(lines: list[Line], body_size: float | None = None) -> list[Block
         if not text:
             continue
         nxt = lines[i + 1] if i + 1 < len(lines) else None
-        followed_by_gap = nxt is None or (nxt.y0 - line.y1) >= PARAGRAPH_GAP * line.height
+        if nxt is None:
+            followed_by_gap = True
+        elif nxt.y0 - line.y1 < -line.height:
+            # The next line sits above this one: a column or page jump. Text usually
+            # flows on, so only a capitalised start is treated as a new paragraph.
+            followed_by_gap = not nxt.text.strip()[:1].islower()
+        else:
+            followed_by_gap = (nxt.y0 - line.y1) >= PARAGRAPH_GAP * line.height
+            # OCR boxes vary in height from line to line (descenders), so a gap alone
+            # misfires; a pitch that matches the page's regular line pitch is not a break.
+            if followed_by_gap and typical_pitch and (nxt.y0 - line.y0) <= PITCH_TOLERANCE * typical_pitch:
+                followed_by_gap = False
 
         level = _heading_level(line, text, body_size, ref_height, followed_by_gap)
         if level:

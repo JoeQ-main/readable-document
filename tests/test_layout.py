@@ -1,6 +1,67 @@
-from pdf_helper.extract.layout import group_lines, merge_paragraph_runs, strip_list_marker
+from pdf_helper.extract.layout import group_lines, merge_paragraph_runs, order_reading, strip_list_marker
 from pdf_helper.extract.model import Block
+from pdf_helper.extract.layout import Line
 from tests.helpers import L
+
+
+def col(text, x0, x1, y, h=10):
+    return Line(text, x0, y, x1, y + h)
+
+
+def test_order_reading_keeps_single_column_in_y_order():
+    lines = [col("b", 20, 200, 12), col("a", 0, 200, 0), col("c", 0, 200, 24), col("d", 0, 200, 36)]
+    assert [l.text for l in order_reading(lines)] == ["a", "b", "c", "d"]
+
+
+def test_order_reading_reads_left_column_before_right_column():
+    left = [col(f"L{i}", 0, 100, 12 * i) for i in range(6)]
+    right = [col(f"R{i}", 150, 250, 12 * i) for i in range(6)]
+    interleaved = [line for pair in zip(left, right) for line in pair]
+    assert [l.text for l in order_reading(interleaved)] == [l.text for l in left + right]
+
+
+def test_order_reading_keeps_full_width_lines_as_band_breaks():
+    title = col("Title", 0, 250, 0)
+    left = [col(f"L{i}", 0, 100, 20 + 12 * i) for i in range(5)]
+    right = [col(f"R{i}", 150, 250, 20 + 12 * i) for i in range(5)]
+    footer = col("Footer", 0, 250, 100)
+    lower_left = [col(f"l{i}", 0, 100, 120 + 12 * i) for i in range(4)]
+    lower_right = [col(f"r{i}", 150, 250, 120 + 12 * i) for i in range(4)]
+    mixed = [title] + [x for p in zip(left, right) for x in p] + [footer] + [x for p in zip(lower_left, lower_right) for x in p]
+    expected = [title] + left + right + [footer] + lower_left + lower_right
+    assert [l.text for l in order_reading(mixed)] == [l.text for l in expected]
+
+
+def test_order_reading_treats_line_reaching_well_into_next_column_as_spanning():
+    # A footer whose OCR box covers the left column and only a third of the right one.
+    left = [col(f"L{i}", 0, 100, 12 * i) for i in range(5)]
+    right = [col(f"R{i}", 150, 250, 12 * i) for i in range(5)]
+    footer = col("Footer", 0, 185, 100)
+    mixed = [x for p in zip(left, right) for x in p] + [footer]
+    assert [l.text for l in order_reading(mixed)] == [l.text for l in left + right + [footer]]
+
+
+def test_regular_line_pitch_overrides_box_height_noise():
+    # OCR boxes are taller on lines with descenders; with a steady 30px pitch that must
+    # not split a paragraph. A doubled pitch still does.
+    lines = [L("one two", 0, h=16), L("three four", 30, h=22), L("five six", 60, h=16),
+             L("seven eight", 90, h=22), L("Nine ten", 150, h=16), L("eleven twelve", 180, h=22)]
+    blocks = group_lines(lines)
+    assert [b.text for b in blocks] == ["one two three four five six seven eight", "Nine ten eleven twelve"]
+
+
+def test_order_reading_handles_tiny_inputs():
+    assert order_reading([]) == []
+    one = [col("only", 0, 100, 0)]
+    assert order_reading(one) == one
+
+
+def test_column_jump_merges_only_a_lowercase_continuation():
+    # After column reordering the next line sits higher on the page (negative gap).
+    cont = group_lines([L("ends mid", 500), L("sentence here.", 0)])
+    assert cont == [Block("paragraph", "ends mid sentence here.")]
+    fresh = group_lines([L("Done here.", 500), L("New paragraph.", 0)])
+    assert [b.text for b in fresh] == ["Done here.", "New paragraph."]
 
 
 def test_empty_input():

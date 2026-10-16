@@ -2,6 +2,7 @@
 
 import os
 import threading
+import time
 from typing import Callable
 
 from PIL import Image, ImageDraw
@@ -46,6 +47,33 @@ def pick_topmost(entries: list[WindowEntry], own_pid: int) -> Candidate | None:
         if accept_window(title, cls, pid, own_pid, visible, width, height):
             return Candidate(hwnd, title, pid, cls)
     return None
+
+
+class ReadGate:
+    """Lets one read pass run at a time and swallows the second click of a double-click.
+
+    pystray fires the default menu item on every left-button-up, and a double-click
+    delivers two of those, so without this gate one click opened two windows.
+    """
+
+    def __init__(self, debounce_seconds: float = 1.0):
+        self._debounce = debounce_seconds
+        self._lock = threading.Lock()
+        self._busy = False
+        self._last_start = float("-inf")
+
+    def try_acquire(self, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._busy or now - self._last_start < self._debounce:
+                return False
+            self._busy = True
+            self._last_start = now
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            self._busy = False
 
 
 def _window_size(hwnd: int) -> tuple[int, int]:

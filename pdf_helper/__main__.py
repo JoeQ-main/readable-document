@@ -3,7 +3,7 @@
 import threading
 
 from .app import safe_read_pass
-from .tray import ForegroundTracker, build_icon, find_topmost_window
+from .tray import ForegroundTracker, ReadGate, build_icon, find_topmost_window
 
 
 def _start_tray() -> None:
@@ -11,13 +11,21 @@ def _start_tray() -> None:
 
     tracker = ForegroundTracker()
     tracker.start()
+    gate = ReadGate()
 
     def on_read() -> None:
+        if not gate.try_acquire():
+            return  # a pass is already running, or this is the second half of a double-click
         # The last real foreground window; failing that, whatever is on top of the Z-order.
         candidate = tracker.candidate or find_topmost_window()
-        threading.Thread(
-            target=safe_read_pass, args=(candidate,), name="read-pass", daemon=True
-        ).start()
+
+        def run() -> None:
+            try:
+                safe_read_pass(candidate)
+            finally:
+                gate.release()
+
+        threading.Thread(target=run, name="read-pass", daemon=True).start()
 
     def on_quit() -> None:
         icon.stop()

@@ -33,7 +33,8 @@ Double-click `ReadableDocument.pyw` (or make a shortcut to it; put the shortcut
 in `shell:startup` to launch it at sign-in). A page icon appears in the tray.
 
 1. View a PDF or image in any application.
-2. Click the tray icon, then **Read document** (or just double-click the icon).
+2. Click the tray icon, then **Read document** (a single left-click on the icon
+   does the same). Extra clicks while a pass is running are ignored.
 3. A window titled *Readable: name* opens. Toolbar buttons change text size,
    line spacing, column width, dark mode, number highlighting and "bionic"
    bolding. Your choices are remembered for the next document.

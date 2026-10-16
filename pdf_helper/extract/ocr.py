@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from ..errors import UserFacingError
-from .layout import Line, group_lines
+from .layout import Line, group_lines, order_reading
 from .model import Document
 
 MIN_TEXT_CHARS = 20
@@ -38,7 +38,7 @@ def _prepare(image: Image.Image) -> Image.Image:
 
 
 def lines_from_result(result: dict) -> list[Line]:
-    """Convert a winocr result dict into lines sorted top-to-bottom, left-to-right."""
+    """Convert a winocr result dict into lines in reading order (column-aware)."""
     lines: list[Line] = []
     for raw in result.get("lines", []):
         words = raw.get("words") or []
@@ -51,8 +51,7 @@ def lines_from_result(result: dict) -> list[Line]:
         x1 = max(r["x"] + r["width"] for r in rects)
         y1 = max(r["y"] + r["height"] for r in rects)
         lines.append(Line(text, x0, y0, x1, y1))
-    lines.sort(key=lambda l: (l.y0, l.x0))
-    return lines
+    return order_reading(lines)
 
 
 def recognize_image(image: Image.Image) -> list[Line]:
