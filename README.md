@@ -44,6 +44,9 @@ in `shell:startup` to launch it at sign-in). A page icon appears in the tray.
    Your choices are remembered for the next document.
 4. **Save** writes the current view as `name-readable.html` to a location you
    pick. The saved file opens in any browser with the same look and toggles.
+   **Open saved document…** in the tray menu picks one of those files and
+   reopens it in a reading window, with the toolbar, your remembered settings
+   and Save working.
 5. Close the window to discard it. You can open several at once. **Quit** in
    the tray menu exits.
 
@@ -150,6 +153,8 @@ you click within three seconds and shows the result.
 - A web page in a browser → window capture, header says "captured from
   window".
 - Save → file opens in a browser with the same look; Save button hidden there.
+- Open saved document… → pick a saved file → reading window with the toolbar;
+  Save still works. Cancel the dialog → nothing happens.
 - Change Dark and text size, close, read again → settings persisted.
 - Read the same PDF again → opens at once, header ends in "from cache".
 - Clear transcription cache → notification with the size freed; the next

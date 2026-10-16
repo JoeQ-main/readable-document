@@ -27,6 +27,7 @@ SHELL_CLASSES = frozenset({
 })
 ICON_SIZE = 64
 MENU_READ = "Read document"
+MENU_OPEN = "Open saved document…"
 MENU_CLEAR_CACHE = "Clear transcription cache"
 MENU_QUIT = "Quit"
 POLL_SECONDS = 0.5
@@ -174,7 +175,7 @@ def make_icon_image() -> Image.Image:
 
 
 def menu_labels() -> list[str]:
-    return [MENU_READ, MENU_CLEAR_CACHE, MENU_QUIT]
+    return [MENU_READ, MENU_OPEN, MENU_CLEAR_CACHE, MENU_QUIT]
 
 
 def clear_cache_message(freed_bytes: int) -> str:
@@ -184,11 +185,13 @@ def clear_cache_message(freed_bytes: int) -> str:
 
 
 def build_icon(on_read: Callable[[], None], on_quit: Callable[[], None],
-               on_clear_cache: Callable[[], None] = lambda: None):
+               on_clear_cache: Callable[[], None] = lambda: None,
+               on_open: Callable[[], None] = lambda: None):
     import pystray
 
     menu = pystray.Menu(
         pystray.MenuItem(MENU_READ, lambda icon, item: on_read(), default=True),
+        pystray.MenuItem(MENU_OPEN, lambda icon, item: on_open()),
         pystray.MenuItem(MENU_CLEAR_CACHE, lambda icon, item: on_clear_cache()),
         pystray.MenuItem(MENU_QUIT, lambda icon, item: on_quit()),
     )

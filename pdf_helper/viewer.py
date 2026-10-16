@@ -160,6 +160,35 @@ class ReadingWindow:
         self._window.destroy()
 
 
+def pick_saved_file() -> Path | None:
+    """Windows Open dialog for a file written by Save; None when cancelled."""
+    import pywintypes
+    import win32con
+    import win32gui
+
+    try:
+        chosen, _, _ = win32gui.GetOpenFileNameW(
+            InitialDir=str(documents_dir()),
+            Filter="HTML files (*.html;*.htm)\0*.html;*.htm\0",
+            Flags=win32con.OFN_EXPLORER | win32con.OFN_FILEMUSTEXIST | win32con.OFN_PATHMUSTEXIST,
+            Title="Open a saved document",
+        )
+    except pywintypes.error:  # cancelled (winerror 0)
+        return None
+    return Path(chosen)
+
+
+def open_saved(path: Path) -> None:
+    """Reopen a saved HTML file in a reading window; prefs sync and Save keep working."""
+    import webview
+
+    title = path.stem.removesuffix("-readable")
+    api = Api(Document(title=title, source_label="", blocks=[]))
+    window = webview.create_window(title=f"Readable: {title}", url=str(path), js_api=api,
+                                   width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+    api.attach(window)
+
+
 def open_document(doc: Document) -> ReadingWindow:
     import webview
 

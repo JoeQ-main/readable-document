@@ -1,3 +1,4 @@
+import sys
 import urllib.error
 import urllib.request
 
@@ -8,7 +9,7 @@ import pytest
 
 from pdf_helper import viewer
 from pdf_helper.extract.model import Block
-from pdf_helper.viewer import Api, PageServer, ReadingWindow, safe_filename
+from pdf_helper.viewer import Api, PageServer, ReadingWindow, open_saved, safe_filename
 
 
 def test_reading_window_appends_rendered_blocks_with_continuing_heading_ids():
@@ -100,3 +101,16 @@ def test_api_prefs_round_trip(tmp_path, sample_doc, monkeypatch):
     api = Api(sample_doc, dialog=lambda d, n: None)
     assert api.set_prefs({"dark": True})["dark"] is True
     assert api.get_prefs()["dark"] is True
+
+
+def test_open_saved_reopens_the_file_in_a_reading_window_with_the_bridge(tmp_path, monkeypatch):
+    saved = tmp_path / "report-readable.html"
+    saved.write_text("<html>x</html>", encoding="utf-8")
+    calls = []
+    fake_window = SimpleNamespace()
+    monkeypatch.setitem(sys.modules, "webview",
+                        SimpleNamespace(create_window=lambda **kw: calls.append(kw) or fake_window))
+    open_saved(saved)
+    assert len(calls) == 1
+    assert calls[0]["title"] == "Readable: report" and calls[0]["url"] == str(saved)
+    assert isinstance(calls[0]["js_api"], Api) and calls[0]["js_api"]._window is fake_window

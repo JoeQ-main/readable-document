@@ -1,5 +1,6 @@
 from pdf_helper.tray import (
     MENU_CLEAR_CACHE,
+    MENU_OPEN,
     ReadGate,
     accept_window,
     clear_cache_message,
@@ -73,8 +74,9 @@ def test_icon_image_is_64px():
     assert make_icon_image().size == (64, 64)
 
 
-def test_menu_has_a_clear_cache_item_between_read_and_quit():
-    assert menu_labels() == ["Read document", MENU_CLEAR_CACHE, "Quit"]
+def test_menu_order_read_open_clear_cache_quit():
+    assert menu_labels() == ["Read document", MENU_OPEN, MENU_CLEAR_CACHE, "Quit"]
+    assert MENU_OPEN == "Open saved document…"
     assert MENU_CLEAR_CACHE == "Clear transcription cache"
 
 
