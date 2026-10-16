@@ -13,7 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MIN_PDF_BYTES = 20_000
-MAX_ENTRIES = 200  # newest cache files examined
+# Every entry is examined (a busy browser writes thousands of entries after a PDF, and
+# only its first five bytes are read unless it is a PDF); ~2 s for 4,000 entries.
+MAX_ENTRIES = None
 KEY_WORDS = 6  # a screen line is matched by its first words, tolerating OCR noise further on
 MIN_WORDS = 5  # shorter lines (menus, buttons) are not evidence
 MIN_MATCHED_LINES = 3
@@ -35,7 +37,7 @@ def firefox_cache_dirs() -> list[Path]:
 
 
 def cached_pdfs(cache_dirs: list[Path] | None = None, min_bytes: int = MIN_PDF_BYTES,
-                limit: int = MAX_ENTRIES) -> list[CachedPdf]:
+                limit: int | None = MAX_ENTRIES) -> list[CachedPdf]:
     """PDF entries in the cache directories, newest first."""
     dirs = cache_dirs if cache_dirs is not None else firefox_cache_dirs()
     files: list[tuple[float, Path]] = []
@@ -53,7 +55,7 @@ def cached_pdfs(cache_dirs: list[Path] | None = None, min_bytes: int = MIN_PDF_B
             continue
     files.sort(reverse=True)
     found: list[CachedPdf] = []
-    for mtime, path in files[:limit]:
+    for mtime, path in (files if limit is None else files[:limit]):
         try:
             with path.open("rb") as f:
                 if f.read(5) != b"%PDF-":

@@ -65,6 +65,18 @@ def test_find_matching_pdf_picks_the_document_on_screen():
     assert find_matching_pdf(screen, []) is None
 
 
+def test_cached_pdfs_finds_a_pdf_buried_under_many_newer_entries(tmp_path):
+    entries = tmp_path / "entries"
+    entries.mkdir()
+    pdf = entries / "OLDPDF"
+    pdf.write_bytes(make_pdf_bytes(PUB_LINES))
+    os.utime(pdf, (1, 1))
+    for i in range(300):  # a busy browser writes thousands of non-PDF entries after the PDF
+        (entries / f"NEWER{i}").write_bytes(b"<html>" * 400)
+    found = cached_pdfs(cache_dirs=[entries], min_bytes=1000)
+    assert [c.origin for c in found] == [str(pdf)]
+
+
 def test_cached_pdfs_reads_newest_pdf_entries_only(tmp_path):
     entries = tmp_path / "cache2" / "entries"
     entries.mkdir(parents=True)

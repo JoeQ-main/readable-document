@@ -9,6 +9,7 @@ from pdf_helper.window_finder import (
     FileSource,
     default_search_dirs,
     document_title_from_window_title,
+    filename_candidates,
     filename_from_title,
     find_file_by_name,
     find_pdf_by_metadata_title,
@@ -27,10 +28,28 @@ from pdf_helper.window_finder import (
         ("scan.jpeg \u2013 Photos", "scan.jpeg"),
         ("Inbox - Mail", None),
         ("notes.pdfx - Editor", None),
+        # Firefox titles a web PDF "<document title> - <filename> \u2014 Mozilla Firefox".
+        ("Treasury Department Circular No. 230 (Rev. 6-2014) - pcir230.pdf \u2014 Mozilla Firefox", "pcir230.pdf"),
+        ("2025 Publication 17 - p17--2025.pdf \u2014 Mozilla Firefox", "p17--2025.pdf"),
     ],
 )
 def test_filename_from_title(title, expected):
     assert filename_from_title(title) == expected
+
+
+def test_filename_candidates_prefer_the_part_after_the_last_separator():
+    # A filename may itself contain " - ", so the longer reading is kept as a second candidate.
+    assert filename_candidates("Quarterly Report - Final.pdf - Google Chrome") == ["Final.pdf", "Quarterly Report - Final.pdf"]
+    assert filename_candidates("report.pdf - Adobe Acrobat") == ["report.pdf"]
+    assert filename_candidates("Inbox - Mail") == []
+
+
+def test_resolve_source_tries_the_longer_filename_too(tmp_path):
+    f = tmp_path / "Quarterly Report - Final.pdf"
+    f.write_bytes(b"x")
+    c = Candidate(1, "Quarterly Report - Final.pdf - Google Chrome", 42, "Chrome_WidgetWin_1")
+    assert resolve_source(c, cmdline=lambda pid: ["chrome.exe"], recent_dir=tmp_path / "none",
+                          search_dirs=[tmp_path]) == FileSource(f)
 
 
 def test_path_from_cmdline_picks_existing_supported_file(tmp_path):
@@ -162,6 +181,16 @@ def test_resolve_source_uses_metadata_title_when_title_has_no_filename(tmp_path)
     assert resolve_source(
         c, cmdline=lambda pid: ["firefox.exe"], recent_dir=tmp_path / "none", search_dirs=[]
     ) == CaptureSource(1, c.title)
+
+
+def test_resolve_source_matches_metadata_title_when_titled_filename_is_not_on_disk(tmp_path):
+    docs = tmp_path / "Documents"
+    docs.mkdir()
+    _make_pdf(docs / "saved-copy.pdf", "Treasury Department Circular No. 230 (Rev. 6-2014)")
+    c = Candidate(1, "Treasury Department Circular No. 230 (Rev. 6-2014) - pcir230.pdf — Mozilla Firefox",
+                  42, "MozillaWindowClass")
+    assert resolve_source(c, cmdline=lambda pid: ["firefox.exe"], recent_dir=tmp_path / "none",
+                          search_dirs=[docs]) == FileSource(docs / "saved-copy.pdf")
 
 
 def test_default_search_dirs_are_real_known_folders():

@@ -56,11 +56,28 @@ class CaptureSource:
     title: str
 
 
-def filename_from_title(title: str) -> str | None:
+TITLE_SEPARATOR = re.compile(r"\s+[-–—|]\s+")
+
+
+def filename_candidates(title: str) -> list[str]:
+    """Possible filenames in a window title, most likely first.
+
+    The regex match runs from the start of the title to the extension, but
+    browsers put the document title first ("Circular 230 - pcir230.pdf — Mozilla
+    Firefox"), so the part after the last " - " separator is tried first and the
+    whole match second, in case the filename itself contains a separator.
+    """
     m = TITLE_FILENAME.search(title)
     if not m:
-        return None
-    return re.split(r"[\\/]", m.group(1))[-1].strip()
+        return []
+    full = re.split(r"[\\/]", m.group(1))[-1].strip()
+    short = TITLE_SEPARATOR.split(full)[-1].strip()
+    return [short, full] if short and short != full else [full]
+
+
+def filename_from_title(title: str) -> str | None:
+    candidates = filename_candidates(title)
+    return candidates[0] if candidates else None
 
 
 def _is_supported_file(path: Path) -> bool:
@@ -221,21 +238,25 @@ def resolve_source(
     # launched with on its command line for its whole life, so when the title names a
     # different file the command line is stale and the title wins. The command line is
     # trusted on its own only when the title names no file at all.
-    name = filename_from_title(candidate.title)
+    names = filename_candidates(candidate.title)
     from_args = path_from_cmdline(cmdline(candidate.pid))
-    if from_args and (name is None or from_args.name.lower() == name.lower()):
+    if from_args and (not names or from_args.name.lower() in {n.lower() for n in names}):
         return FileSource(from_args)
 
     recent = recent_dir if recent_dir is not None else recent_items_dir()
     dirs = search_dirs if search_dirs is not None else default_search_dirs()
-    if name:
+    for name in names:
         found = find_file_by_name(name, recent, dirs)
         if found:
             return FileSource(found)
-    else:
-        # Browsers show a PDF's metadata title instead of its filename; match on that.
-        found = find_pdf_by_metadata_title(document_title_from_window_title(candidate.title), recent, dirs)
-        if found:
-            return FileSource(found)
+
+    # Browsers show a PDF's metadata title (sometimes followed by " - filename"); a
+    # downloaded copy may carry another filename but the same metadata title.
+    doc_title = document_title_from_window_title(candidate.title)
+    if names:  # drop a trailing " - <filename>" so only the document title remains
+        doc_title = re.sub(r"\s+[-–—|]\s+" + re.escape(names[0]) + r"$", "", doc_title)
+    found = find_pdf_by_metadata_title(doc_title, recent, dirs)
+    if found:
+        return FileSource(found)
 
     return CaptureSource(candidate.hwnd, candidate.title)
