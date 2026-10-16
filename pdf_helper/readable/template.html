@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en" style="{{ROOT_STYLE}}" {{DATA_ATTRS}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Readable: {{TITLE}}</title>
+<style>
+  :root {
+    --bg: #FAF7F0;
+    --fg: #2B2B2B;
+    --muted: #6B6B6B;
+    --accent: #2F6F9F;
+    --tint: #FFF3C4;
+    --panel: #F1ECE2;
+    --border: #DDD6C8;
+    --toolbar-h: 48px;
+    --outline-w: 240px;
+  }
+  html[data-dark="1"] {
+    --bg: #1E1E1E;
+    --fg: #E6E6E6;
+    --muted: #A0A0A0;
+    --accent: #7FB3D5;
+    --tint: #4A4A2A;
+    --panel: #262626;
+    --border: #3A3A3A;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .toolbar {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--toolbar-h);
+    display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    font-size: 14px; z-index: 10;
+  }
+  .toolbar button {
+    font: inherit; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+  }
+  .toolbar button:hover { border-color: var(--accent); }
+  .toolbar button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .toolbar .spacer { flex: 1; }
+  .toolbar #status { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+  .toolbar button.hidden, .hidden { display: none !important; }
+
+  .outline {
+    position: fixed; top: var(--toolbar-h); left: 0; bottom: 0; width: var(--outline-w);
+    overflow-y: auto; padding: 16px 12px; background: var(--panel);
+    border-right: 1px solid var(--border); font-size: 14px; z-index: 5;
+  }
+  .outline.collapsed { display: none; }
+  .outline .outline-title { font-weight: 600; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; font-size: 12px; letter-spacing: .05em; }
+  .outline ol { list-style: none; margin: 0; padding: 0; }
+  .outline li { margin: 4px 0; }
+  .outline li.l2 { padding-left: 12px; }
+  .outline li.l3 { padding-left: 24px; font-size: 13px; }
+  .outline a { color: var(--fg); text-decoration: none; }
+  .outline a:hover { color: var(--accent); }
+
+  main {
+    max-width: var(--measure);
+    font-size: var(--size);
+    line-height: var(--leading);
+    margin: 0 auto;
+    padding: calc(var(--toolbar-h) + 2.5rem) 1rem 6rem;
+  }
+  html[data-outline="1"] main { margin-left: calc(var(--outline-w) + 2rem); }
+  @media (max-width: 900px) { html[data-outline="1"] main { margin-left: auto; } }
+
+  .source { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; line-height: 1.5; }
+  .source .ocr-note { display: inline-block; margin-left: .75em; padding: 1px 8px; border-radius: 999px; background: var(--tint); color: var(--fg); }
+
+  p { margin: 1.1em 0; }
+  h1, h2, h3 {
+    margin: 2em 0 .6em; line-height: 1.3; font-weight: 650;
+    border-left: 4px solid var(--accent); padding-left: .5em; color: var(--fg);
+  }
+  h1 { font-size: 1.6em; }
+  h2 { font-size: 1.3em; }
+  h3 { font-size: 1.1em; }
+  ul { padding-left: 1.4em; margin: 1.1em 0; }
+  li { margin: .35em 0; }
+  b.lead { font-weight: 650; }
+  b.bio { font-weight: 700; }
+  mark.num { background: transparent; color: inherit; border-radius: 3px; padding: 0 .1em; }
+  html[data-numbers="1"] mark.num { background: var(--tint); }
+  ::selection { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+<div class="toolbar" role="toolbar">
+  <button data-act="outline" title="Show or hide the outline">Outline</button>
+  <button data-act="size-" title="Smaller text">A&minus;</button>
+  <button data-act="size+" title="Larger text">A+</button>
+  <button data-act="leading" title="Cycle line spacing">Spacing</button>
+  <button data-act="measure" title="Cycle column width">Width</button>
+  <button data-act="dark" title="Dark mode">Dark</button>
+  <button data-act="numbers" title="Highlight numbers and dates">Numbers</button>
+  <button data-act="bionic" title="Bold the start of every word">Bionic</button>
+  <span class="spacer"></span>
+  <span id="status"></span>
+  <button data-act="save" id="save" title="Save this view as an HTML file">Save</button>
+</div>
+<nav class="outline{{OUTLINE_CLASS}}" id="outline">
+  <div class="outline-title">Outline</div>
+  <ol>
+{{OUTLINE}}
+  </ol>
+</nav>
+<main>
+  <header class="source"><span class="label">{{SOURCE}}</span>{{OCR_NOTE}}</header>
+{{BODY}}
+</main>
+<script>
+(function () {
+  var INITIAL = {{PREFS_JSON}};
+  var LEADINGS = [1.5, 1.75, 2.0];
+  var MEASURES = [50, 62, 75];
+  var root = document.documentElement;
+  var prefs = {};
+  var hasApi = function () { return !!(window.pywebview && window.pywebview.api); };
+
+  function readBaked() {
+    var s = root.style;
+    return {
+      size: parseInt(s.getPropertyValue('--size'), 10) || INITIAL.size,
+      leading: parseFloat(s.getPropertyValue('--leading')) || INITIAL.leading,
+      measure: parseInt(s.getPropertyValue('--measure'), 10) || INITIAL.measure,
+      dark: root.dataset.dark === '1',
+      numbers: root.dataset.numbers === '1',
+      bionic: root.dataset.bionic === '1'
+    };
+  }
+
+  function applyPrefs(p) {
+    root.style.setProperty('--size', p.size + 'px');
+    root.style.setProperty('--leading', String(p.leading));
+    root.style.setProperty('--measure', p.measure + 'ch');
+    root.dataset.dark = p.dark ? '1' : '0';
+    root.dataset.numbers = p.numbers ? '1' : '0';
+    root.dataset.bionic = p.bionic ? '1' : '0';
+    bionic(p.bionic);
+    ['dark', 'numbers', 'bionic'].forEach(function (key) {
+      var btn = document.querySelector('[data-act="' + key + '"]');
+      if (btn) btn.setAttribute('aria-pressed', p[key] ? 'true' : 'false');
+    });
+  }
+
+  function persist() {
+    if (hasApi()) { try { window.pywebview.api.set_prefs(prefs); } catch (e) {} }
+  }
+
+  function update(patch) {
+    Object.keys(patch).forEach(function (k) { prefs[k] = patch[k]; });
+    applyPrefs(prefs);
+    persist();
+  }
+
+  function cycle(list, current) {
+    var i = list.indexOf(current);
+    return list[(i + 1) % list.length];
+  }
+
+  function bionicWord(word) {
+    if (!/[A-Za-z]/.test(word)) return document.createTextNode(word);
+    var k = Math.max(1, Math.min(4, Math.round(0.4 * word.length)));
+    var frag = document.createDocumentFragment();
+    var b = document.createElement('b');
+    b.className = 'bio';
+    b.textContent = word.slice(0, k);
+    frag.appendChild(b);
+    frag.appendChild(document.createTextNode(word.slice(k)));
+    return frag;
+  }
+
+  function bionic(on) {
+    var nodes = document.querySelectorAll('main p, main li');
+    Array.prototype.forEach.call(nodes, function (el) {
+      if (on) {
+        if (el.dataset.bionic === '1') return;
+        el.dataset.orig = el.innerHTML;
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        var texts = [];
+        while (walker.nextNode()) texts.push(walker.currentNode);
+        texts.forEach(function (node) {
+          var parts = node.nodeValue.split(/(\s+)/);
+          var frag = document.createDocumentFragment();
+          parts.forEach(function (part) {
+            if (/^\s+$/.test(part) || part === '') frag.appendChild(document.createTextNode(part));
+            else frag.appendChild(bionicWord(part));
+          });
+          node.parentNode.replaceChild(frag, node);
+        });
+        el.dataset.bionic = '1';
+      } else if (el.dataset.bionic === '1') {
+        el.innerHTML = el.dataset.orig;
+        delete el.dataset.orig;
+        delete el.dataset.bionic;
+      }
+    });
+  }
+
+  var statusTimer = null;
+  function status(text) {
+    var el = document.getElementById('status');
+    el.textContent = text;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(function () { el.textContent = ''; }, 3000);
+  }
+
+  function save() {
+    if (!hasApi()) return;
+    applyPrefs(prefs);
+    var html = '<!DOCTYPE html>\n' + root.outerHTML;
+    Promise.resolve(window.pywebview.api.save(html)).then(function (path) {
+      status(path ? 'Saved: ' + path : 'Not saved');
+    }, function () { status('Save failed'); });
+  }
+
+  function setOutline(show) {
+    var nav = document.getElementById('outline');
+    nav.classList.toggle('collapsed', !show);
+    root.dataset.outline = show && !nav.classList.contains('hidden') ? '1' : '0';
+  }
+
+  document.querySelector('.toolbar').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button');
+    if (!btn) return;
+    switch (btn.dataset.act) {
+      case 'size-': update({ size: Math.max(14, prefs.size - 2) }); break;
+      case 'size+': update({ size: Math.min(32, prefs.size + 2) }); break;
+      case 'leading': update({ leading: cycle(LEADINGS, prefs.leading) }); break;
+      case 'measure': update({ measure: cycle(MEASURES, prefs.measure) }); break;
+      case 'dark': update({ dark: !prefs.dark }); break;
+      case 'numbers': update({ numbers: !prefs.numbers }); break;
+      case 'bionic': update({ bionic: !prefs.bionic }); break;
+      case 'outline': setOutline(document.getElementById('outline').classList.contains('collapsed')); break;
+      case 'save': save(); break;
+    }
+  });
+
+  prefs = readBaked();
+  applyPrefs(prefs);
+  setOutline(true);
+  if (!window.pywebview) document.getElementById('save').classList.add('hidden');
+
+  window.addEventListener('pywebviewready', function () {
+    document.getElementById('save').classList.remove('hidden');
+    Promise.resolve(window.pywebview.api.get_prefs()).then(function (p) {
+      if (p) { prefs = p; applyPrefs(prefs); }
+    }, function () {});
+  });
+})();
+</script>
+</body>
+</html>
