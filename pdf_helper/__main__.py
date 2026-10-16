@@ -3,7 +3,9 @@
 import threading
 
 from .app import safe_read_pass
-from .tray import ForegroundTracker, ReadGate, build_icon, find_topmost_window
+from .errors import log_exception, show_error
+from .transcription_cache import clear as clear_cache
+from .tray import ForegroundTracker, ReadGate, build_icon, clear_cache_message, find_topmost_window
 
 
 def _start_tray() -> None:
@@ -31,13 +33,25 @@ def _start_tray() -> None:
 
         threading.Thread(target=run, name="read-pass", daemon=True).start()
 
+    def on_clear_cache() -> None:
+        try:
+            message = clear_cache_message(clear_cache())
+        except Exception as exc:  # noqa: BLE001 - the tray must survive anything
+            log_exception(exc)
+            show_error(f"Could not clear the transcription cache: {exc}")
+            return
+        try:
+            icon.notify(message, "Readable Document")
+        except Exception:  # notifications are best effort
+            pass
+
     def on_quit() -> None:
         icon.stop()
         tracker.stop()
         for window in list(webview.windows):
             window.destroy()
 
-    icon = build_icon(on_read, on_quit)
+    icon = build_icon(on_read, on_quit, on_clear_cache)
     icon.run_detached()
 
 

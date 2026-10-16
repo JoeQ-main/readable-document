@@ -6,12 +6,13 @@ import base64
 import io
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Iterator, Literal
+from typing import Callable, Iterator, Literal, NamedTuple
 
 import anthropic
 from PIL import Image
 from pydantic import BaseModel
 
+from . import transcription_cache as cache
 from .errors import UserFacingError
 from .extract.model import Block, Document
 
@@ -152,6 +153,37 @@ def _blocks(parsed: ParsedDocument) -> list[Block]:
             for b in parsed.blocks if b.text.strip()]
 
 
+def _read(content: list[dict], cache_key: str) -> tuple[list[Block], str]:
+    """Ask Claude and remember the answer under cache_key; (blocks, title)."""
+    parsed = _ask(content)
+    blocks = _blocks(parsed)
+    if blocks:
+        cache.put(cache_key, blocks, parsed.title, model())
+    return blocks, parsed.title
+
+
+def pdf_cache_key(data: bytes) -> str:
+    """Key of a whole PDF's transcription: its bytes, the model and the chunking."""
+    return cache.key(data, "pdf", model(), str(CHUNK_PAGES))
+
+
+def _chunk_cache_key(data: bytes, instruction: str) -> str:
+    # The instruction names the page range, so the source document plus the instruction
+    # identifies the chunk; the split chunk's own bytes differ on every run (pymupdf
+    # stamps them), so they cannot serve as the key.
+    return cache.key(data, "pdf-chunk", model(), instruction)
+
+
+def _image_cache_key(data: bytes) -> str:
+    return cache.key(data, "image", model(), IMAGE_INSTRUCTION)
+
+
+def source_description(source_label: str, from_cache: bool = False) -> str:
+    """The header line's account of where the text came from."""
+    label = f"{source_label} — read by Claude ({model()})"
+    return label + ", from cache" if from_cache else label
+
+
 class ChunkJoiner:
     """Joins page chunks in order, holding back each chunk's trailing paragraph until
     the next chunk shows whether it continues (a lowercase start means it does)."""
@@ -181,10 +213,11 @@ class ChunkJoiner:
         return [pending] if pending is not None else []
 
 
-def _document(blocks: list[Block], title: str, source_label: str, via_image: bool) -> Document:
+def _document(blocks: list[Block], title: str, source_label: str, via_image: bool,
+              from_cache: bool = False) -> Document:
     if not blocks:
         raise UserFacingError("No readable text was found.")
-    return Document(title=title, source_label=f"{source_label} — read by Claude ({model()})",
+    return Document(title=title, source_label=source_description(source_label, from_cache),
                     blocks=blocks, via_ocr=via_image)
 
 
@@ -214,45 +247,92 @@ def _pdf_content(pdf_bytes: bytes, instruction: str) -> list[dict]:
     ]
 
 
-def iter_pdf_blocks(data: bytes) -> Iterator[tuple[int, int, int, list[Block]]]:
-    """Yield (first_page, last_page, total_pages, blocks) per chunk, in page order,
-    each as soon as it is ready; chunks are requested MAX_WORKERS at a time."""
+class PdfChunk(NamedTuple):
+    first: int
+    last: int
+    total: int
+    blocks: list[Block]
+    from_cache: bool  # True when this whole read is served from the cache, with no API call
+
+
+def iter_pdf_blocks(data: bytes) -> Iterator[PdfChunk]:
+    """Yield the blocks per page chunk, in page order, each as soon as it is ready;
+    chunks are requested MAX_WORKERS at a time. Chunks already transcribed (by an earlier
+    read, or an earlier run that failed later on) come from the cache; a document that is
+    wholly cached comes back at once, as one chunk, without touching the API."""
     if len(data) > MAX_PDF_BYTES:
         raise UserFacingError("This PDF is larger than the Claude API accepts (30 MB).")
     pages = _pdf_page_count(data)
     if pages > MAX_PDF_PAGES:
         raise UserFacingError(f"This PDF has {pages} pages; the Claude API reads at most {MAX_PDF_PAGES}.")
-    chunks = _split_pdf(data, pages)
-    if len(chunks) == 1:
-        yield 1, pages, pages, _blocks(_ask(_pdf_content(data, PDF_INSTRUCTION)))
+    whole_key = pdf_cache_key(data)
+    whole = cache.get(whole_key)
+    if whole is not None:
+        yield PdfChunk(1, pages, pages, whole, True)
+        return
+    if pages <= CHUNK_PAGES:
+        blocks, _ = _read(_pdf_content(data, PDF_INSTRUCTION), whole_key)
+        yield PdfChunk(1, pages, pages, blocks, False)
         return
 
-    def read_chunk(chunk: tuple[int, int, bytes]) -> list[Block]:
-        first, last, part = chunk
-        instruction = PDF_CHUNK_INSTRUCTION.format(first=first, last=last, total=pages)
-        return _blocks(_ask(_pdf_content(part, instruction)))
+    chunks = _split_pdf(data, pages)
+    instructions = [PDF_CHUNK_INSTRUCTION.format(first=first, last=last, total=pages)
+                    for first, last, _ in chunks]
+    keys = [_chunk_cache_key(data, instruction) for instruction in instructions]
+    hits = [cache.get(key) for key in keys]
+    all_cached = all(hit is not None for hit in hits)
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        for (first, last, _), blocks in zip(chunks, pool.map(read_chunk, chunks)):
-            yield first, last, pages, blocks
+    def read_chunk(index: int) -> tuple[list[Block], str]:
+        if hits[index] is not None:
+            return hits[index], ""
+        return _read(_pdf_content(chunks[index][2], instructions[index]), keys[index])
+
+    joiner = ChunkJoiner()  # the whole-document entry is the joined document
+    document: list[Block] = []
+    title = ""
+
+    def deliver(index: int, blocks: list[Block], chunk_title: str) -> PdfChunk:
+        nonlocal title
+        title = title or chunk_title
+        document.extend(joiner.push(blocks))
+        first, last, _ = chunks[index]
+        return PdfChunk(first, last, pages, blocks, all_cached)
+
+    if all_cached:
+        for index, blocks in enumerate(hits):
+            yield deliver(index, blocks, "")
+    else:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            for index, (blocks, chunk_title) in enumerate(pool.map(read_chunk, range(len(chunks)))):
+                yield deliver(index, blocks, chunk_title)
+    document.extend(joiner.flush())
+    if document:
+        cache.put(whole_key, document, title, model())
 
 
 def read_pdf(data: bytes, title: str, source_label: str) -> Document:
     """Whole document at once; the app streams chunks via iter_pdf_blocks instead."""
     joiner = ChunkJoiner()
     blocks: list[Block] = []
-    for *_, chunk in iter_pdf_blocks(data):
-        blocks.extend(joiner.push(chunk))
+    from_cache = False
+    for chunk in iter_pdf_blocks(data):
+        from_cache = chunk.from_cache
+        blocks.extend(joiner.push(chunk.blocks))
     blocks.extend(joiner.flush())
-    return _document(blocks, title, source_label, False)
+    return _document(blocks, title, source_label, False, from_cache)
 
 
 def read_image(image: Image.Image, title: str, source_label: str) -> Document:
     data, media_type = prepare_image(image)
+    key = _image_cache_key(data)
+    cached = cache.get(key)
+    if cached is not None:
+        return _document(cached, title, source_label, via_image=True, from_cache=True)
     content = [
         {"type": "image",
          "source": {"type": "base64", "media_type": media_type,
                     "data": base64.standard_b64encode(data).decode("ascii")}},
         {"type": "text", "text": IMAGE_INSTRUCTION},
     ]
-    return _document(_blocks(_ask(content)), title, source_label, via_image=True)
+    blocks, _ = _read(content, key)
+    return _document(blocks, title, source_label, via_image=True)

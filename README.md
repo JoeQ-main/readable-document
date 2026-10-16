@@ -4,8 +4,9 @@ A small Windows tray utility. Click **Read document** in its tray menu and it
 finds the PDF or text-heavy image you most recently had in front, sends it to
 the Claude API, and opens a restyled version that is easier to focus on and
 skim: short lines, generous spacing, clear headings with an outline, bolded
-lead-ins, highlighted numbers. Nothing is written to disk unless you press
-**Save**, which writes a standalone HTML file.
+lead-ins, highlighted numbers. The transcribed text is kept in a local cache so
+the same document is free to reopen; nothing else is written to disk unless you
+press **Save**, which writes a standalone HTML file.
 
 Claude transcribes the document and marks up its structure (headings,
 paragraphs, lists). It is instructed never to reword, summarize or omit the
@@ -63,6 +64,29 @@ in `shell:startup` to launch it at sign-in). A page icon appears in the tray.
   in the header. If a later chunk fails, the pages already shown stay readable
   and the progress line says where and why reading stopped.
 
+## The transcription cache
+
+Reading the same document twice does not call the API again. Every
+transcription Claude returns is kept in `%APPDATA%\PDFHelper\cache`, one JSON
+file per document (and per 4-page chunk of a long PDF), holding the model
+name, the time, the title and the transcribed text as blocks. The file is
+named by a hash of the document's bytes, the model and the chunk size, so a
+changed file, another model or another chunk size reads afresh. Nothing else
+is stored: not the PDF, not the capture, not the file's location.
+
+- A document already in the cache opens at once, and its header line ends in
+  *from cache*.
+- A long PDF whose read failed partway keeps the chunks that succeeded; the
+  next read pays only for the missing pages.
+- Screen captures and image files are cached by the image sent, so the same
+  unchanged view is free the second time; any change on screen is a new image.
+- The folder is capped at 200 MB; the oldest entries by last use are pruned.
+- **Clear transcription cache** in the tray menu deletes the folder's contents
+  and reports how much was freed. Deleting the folder by hand does the same.
+
+The cache holds the text of what you have read, in plain JSON, so treat the
+folder like the documents themselves.
+
 ## How it finds the document, and what it captures
 
 The app remembers the last window you had in front that is not the taskbar,
@@ -98,7 +122,8 @@ Supported files: `.pdf .png .jpg .jpeg .bmp .tif .tiff .webp .gif`.
 The reading window loads its page from memory over a loopback-only HTTP
 server inside the app (random port, unguessable token per document, page
 forgotten when its window closes). Preferences live in
-`%APPDATA%\PDFHelper\settings.json`; unexpected errors are logged to
+`%APPDATA%\PDFHelper\settings.json`, transcriptions in
+`%APPDATA%\PDFHelper\cache`; unexpected errors are logged to
 `%APPDATA%\PDFHelper\error.log`.
 
 ## Development
@@ -124,5 +149,8 @@ you click within three seconds and shows the result.
   window".
 - Save → file opens in a browser with the same look; Save button hidden there.
 - Change Dark and text size, close, read again → settings persisted.
+- Read the same PDF again → opens at once, header ends in "from cache".
+- Clear transcription cache → notification with the size freed; the next
+  read of that PDF calls the API again.
 - No document window (fresh sign-in, nothing opened) → message box.
 - No API key → message box naming `ANTHROPIC_API_KEY`; the tray survives.

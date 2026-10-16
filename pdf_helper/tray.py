@@ -7,6 +7,7 @@ from typing import Callable
 
 from PIL import Image, ImageDraw
 
+from .transcription_cache import describe_size
 from .window_finder import Candidate
 
 SHELL_CLASSES = frozenset({
@@ -25,6 +26,9 @@ SHELL_CLASSES = frozenset({
     "tooltips_class32",
 })
 ICON_SIZE = 64
+MENU_READ = "Read document"
+MENU_CLEAR_CACHE = "Clear transcription cache"
+MENU_QUIT = "Quit"
 POLL_SECONDS = 0.5
 MIN_CANDIDATE_SIDE = 200  # same floor as capture.MIN_SIDE: smaller windows cannot be read anyway
 
@@ -169,11 +173,23 @@ def make_icon_image() -> Image.Image:
     return img
 
 
-def build_icon(on_read: Callable[[], None], on_quit: Callable[[], None]):
+def menu_labels() -> list[str]:
+    return [MENU_READ, MENU_CLEAR_CACHE, MENU_QUIT]
+
+
+def clear_cache_message(freed_bytes: int) -> str:
+    if freed_bytes == 0:
+        return "The transcription cache was already empty."
+    return f"Transcription cache cleared: {describe_size(freed_bytes)} freed."
+
+
+def build_icon(on_read: Callable[[], None], on_quit: Callable[[], None],
+               on_clear_cache: Callable[[], None] = lambda: None):
     import pystray
 
     menu = pystray.Menu(
-        pystray.MenuItem("Read document", lambda icon, item: on_read(), default=True),
-        pystray.MenuItem("Quit", lambda icon, item: on_quit()),
+        pystray.MenuItem(MENU_READ, lambda icon, item: on_read(), default=True),
+        pystray.MenuItem(MENU_CLEAR_CACHE, lambda icon, item: on_clear_cache()),
+        pystray.MenuItem(MENU_QUIT, lambda icon, item: on_quit()),
     )
     return pystray.Icon("readable-document", make_icon_image(), "Readable Document", menu=menu)

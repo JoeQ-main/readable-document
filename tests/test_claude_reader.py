@@ -6,7 +6,7 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from pdf_helper import claude_reader
+from pdf_helper import claude_reader, transcription_cache
 from pdf_helper.claude_reader import (
     DEFAULT_MODEL,
     ChunkJoiner,
@@ -56,8 +56,8 @@ def test_iter_pdf_blocks_yields_page_ranges_in_order(monkeypatch):
     monkeypatch.setattr(claude_reader, "client_factory", lambda: client)
 
     chunks = list(iter_pdf_blocks(small_pdf(pages=7)))
-    assert [(first, last, total) for first, last, total, _ in chunks] == [(1, 3, 7), (4, 6, 7), (7, 7, 7)]
-    assert all(len(blocks) == 1 for *_, blocks in chunks)
+    assert [(c.first, c.last, c.total) for c in chunks] == [(1, 3, 7), (4, 6, 7), (7, 7, 7)]
+    assert all(len(c.blocks) == 1 and c.from_cache is False for c in chunks)
 from pdf_helper.errors import UserFacingError
 from pdf_helper.extract.model import Block
 
@@ -92,6 +92,14 @@ def parsed(blocks, title="Parsed Title"):
         stop_reason="end_turn",
         stop_details=None,
     )
+
+
+@pytest.fixture(autouse=True)
+def cache_dir(monkeypatch, tmp_path):
+    folder = tmp_path / "cache"
+    folder.mkdir()
+    monkeypatch.setattr(transcription_cache, "cache_dir", lambda: folder)
+    return folder
 
 
 @pytest.fixture
@@ -222,3 +230,121 @@ def test_pdf_too_long_is_rejected_before_sending(fake, monkeypatch):
     with pytest.raises(UserFacingError, match="pages"):
         read_pdf(small_pdf(pages=3), "t", "s")
     assert fake.messages.calls == []
+
+
+SAMPLE_PDF = __import__("pathlib").Path(__file__).parent / "fixtures" / "sample.pdf"
+
+
+def test_second_read_of_the_same_pdf_makes_no_api_call(fake, cache_dir):
+    data = SAMPLE_PDF.read_bytes()
+    first = read_pdf(data, "sample", "C:/x/sample.pdf")
+    assert len(fake.messages.calls) == 1 and first.source_label.endswith(f"read by Claude ({DEFAULT_MODEL})")
+    assert len(list(cache_dir.glob("*.json"))) == 1
+
+    second = read_pdf(data, "sample", "C:/x/sample.pdf")
+    assert fake.messages.calls == fake.messages.calls[:1]  # zero new API calls
+    assert second.blocks == first.blocks
+    assert second.source_label == first.source_label + ", from cache"
+
+
+def test_cache_key_depends_on_model_and_chunk_size(fake, monkeypatch):
+    data = small_pdf()
+    read_pdf(data, "t", "s")
+    monkeypatch.setenv("READABLE_MODEL", "claude-sonnet-5-5")
+    read_pdf(data, "t", "s")
+    assert len(fake.messages.calls) == 2  # another model means another transcription
+    monkeypatch.delenv("READABLE_MODEL")
+    monkeypatch.setattr(claude_reader, "CHUNK_PAGES", 2)
+    read_pdf(data, "t", "s")
+    assert len(fake.messages.calls) == 3
+
+
+def _chunked_client(monkeypatch, fail_first=()):
+    """A fake that answers each chunk with its page range, failing the pages in fail_first once."""
+    failures = set(fail_first)
+
+    class Chunked(FakeMessages):
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            instruction = kwargs["messages"][0]["content"][-1]["text"]
+            first_page = int(instruction.split("pages ")[1].split(" ")[0])
+            if first_page in failures:
+                failures.discard(first_page)
+                raise UserFacingError("The Claude API rate limit was hit.")
+            return parsed([ParsedBlock(kind="list_item", level=0, text=f"from page {first_page}")])
+
+    client = FakeClient()
+    client.messages = Chunked()
+    client.beta = SimpleNamespace(messages=client.messages)
+    monkeypatch.setattr(claude_reader, "client_factory", lambda: client)
+    return client
+
+
+def test_chunks_that_succeeded_before_a_failure_are_not_requested_again(monkeypatch, cache_dir):
+    monkeypatch.setattr(claude_reader, "CHUNK_PAGES", 2)
+    monkeypatch.setattr(claude_reader, "MAX_WORKERS", 1)
+    client = _chunked_client(monkeypatch, fail_first=(5,))
+    data = small_pdf(pages=6)
+    with pytest.raises(UserFacingError, match="rate limit"):
+        list(iter_pdf_blocks(data))
+    assert len(client.messages.calls) == 3  # pages 1-2 and 3-4 succeeded and were cached
+    assert len(list(cache_dir.glob("*.json"))) == 2
+
+    chunks = list(iter_pdf_blocks(data))
+    assert len(client.messages.calls) == 4  # only pages 5-6 were requested again
+    assert [c.blocks[0].text for c in chunks] == ["from page 1", "from page 3", "from page 5"]
+    assert all(c.from_cache is False for c in chunks)  # an API call was made for this read
+    assert len(list(cache_dir.glob("*.json"))) == 4  # three chunks and the whole document
+
+    again = list(iter_pdf_blocks(data))
+    assert len(client.messages.calls) == 4
+    assert [b.text for b in again[0].blocks] == ["from page 1", "from page 3", "from page 5"]
+    assert [(c.first, c.last, c.from_cache) for c in again] == [(1, 6, True)]  # whole-document hit
+
+
+def test_whole_document_hit_skips_the_executor(monkeypatch, cache_dir):
+    monkeypatch.setattr(claude_reader, "CHUNK_PAGES", 2)
+    _chunked_client(monkeypatch)
+    data = small_pdf(pages=5)
+    list(iter_pdf_blocks(data))
+
+    def no_pool(*args, **kwargs):
+        raise AssertionError("the executor must not be used for a cached document")
+
+    monkeypatch.setattr(claude_reader, "ThreadPoolExecutor", no_pool)
+    monkeypatch.setattr(claude_reader, "_split_pdf", no_pool)
+    chunks = list(iter_pdf_blocks(data))
+    # the whole-document entry is the joined document, served as one chunk
+    assert [(c.first, c.last, c.total, c.from_cache) for c in chunks] == [(1, 5, 5, True)]
+    assert [b.text for b in chunks[0].blocks] == ["from page 1", "from page 3", "from page 5"]
+
+
+def test_all_chunks_cached_without_a_whole_document_entry_still_makes_no_call(monkeypatch, cache_dir):
+    monkeypatch.setattr(claude_reader, "CHUNK_PAGES", 2)
+    client = _chunked_client(monkeypatch)
+    data = small_pdf(pages=4)
+    list(iter_pdf_blocks(data))
+    whole = cache_dir / f"{claude_reader.pdf_cache_key(data)}.json"
+    assert whole.exists()
+    whole.unlink()
+    monkeypatch.setattr(claude_reader, "ThreadPoolExecutor", lambda *a, **k: 1 / 0)
+    chunks = list(iter_pdf_blocks(data))
+    assert len(client.messages.calls) == 2 and all(c.from_cache for c in chunks)
+
+
+def test_second_read_of_the_same_image_makes_no_api_call(fake):
+    image = Image.new("RGB", (400, 300), "white")
+    first = read_image(image, "shot", "captured")
+    second = read_image(image.copy(), "shot", "captured")
+    assert len(fake.messages.calls) == 1
+    assert second.blocks == first.blocks and second.via_ocr is True
+    assert second.source_label == first.source_label + ", from cache"
+    read_image(Image.new("RGB", (400, 300), "black"), "shot", "captured")
+    assert len(fake.messages.calls) == 2
+
+
+def test_empty_transcriptions_are_not_cached(monkeypatch, cache_dir):
+    monkeypatch.setattr(claude_reader, "client_factory", lambda: FakeClient(parsed([])))
+    with pytest.raises(UserFacingError):
+        read_image(Image.new("RGB", (300, 300)), "t", "s")
+    assert list(cache_dir.glob("*.json")) == []

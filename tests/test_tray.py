@@ -1,4 +1,12 @@
-from pdf_helper.tray import ReadGate, accept_window, make_icon_image, pick_topmost
+from pdf_helper.tray import (
+    MENU_CLEAR_CACHE,
+    ReadGate,
+    accept_window,
+    clear_cache_message,
+    make_icon_image,
+    menu_labels,
+    pick_topmost,
+)
 from pdf_helper.window_finder import Candidate
 
 
@@ -63,3 +71,13 @@ def test_pick_topmost_skips_small_windows():
 
 def test_icon_image_is_64px():
     assert make_icon_image().size == (64, 64)
+
+
+def test_menu_has_a_clear_cache_item_between_read_and_quit():
+    assert menu_labels() == ["Read document", MENU_CLEAR_CACHE, "Quit"]
+    assert MENU_CLEAR_CACHE == "Clear transcription cache"
+
+
+def test_clear_cache_message_reports_bytes_freed():
+    assert clear_cache_message(0) == "The transcription cache was already empty."
+    assert clear_cache_message(3 * 1024 * 1024) == "Transcription cache cleared: 3.0 MB freed."

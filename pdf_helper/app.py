@@ -4,7 +4,7 @@ from PIL import Image
 
 from .browser_cache import cached_pdf_for_screen
 from .capture import capture_window
-from .claude_reader import ChunkJoiner, iter_pdf_blocks, model, read_image
+from .claude_reader import ChunkJoiner, iter_pdf_blocks, read_image, source_description
 from .errors import UserFacingError, log_exception, show_error
 from .extract.model import Document
 from .viewer import open_document
@@ -15,24 +15,26 @@ def show_pdf_progressively(data: bytes, title: str, source_label: str) -> None:
     """Open the reading window after the first chunk and fill it as later chunks arrive."""
     joiner = ChunkJoiner()
     window = None
-    label = f"{source_label} — read by Claude ({model()})"
+    from_cache = False
 
     def deliver(blocks):
         nonlocal window
         if not blocks:
             return
         if window is None:
+            label = source_description(source_label, from_cache)
             window = open_document(Document(title=title, source_label=label, blocks=blocks, via_ocr=False))
         else:
             window.append(blocks)
 
     pages_done, pages_total = 0, 0
     try:
-        for _, last, total, chunk in iter_pdf_blocks(data):
-            pages_done, pages_total = last, total
-            deliver(joiner.push(chunk))
+        for chunk in iter_pdf_blocks(data):
+            pages_done, pages_total, from_cache = chunk.last, chunk.total, chunk.from_cache
+            deliver(joiner.push(chunk.blocks))
             if window is not None:
-                window.set_progress(f"Read pages 1–{last} of {total}…" if last < total else "")
+                window.set_progress(
+                    f"Read pages 1–{chunk.last} of {chunk.total}…" if chunk.last < chunk.total else "")
     except Exception as exc:
         if window is not None:  # leave the partial document readable, but say why it stopped
             window.set_progress(f"Reading stopped after page {pages_done} of {pages_total}: {exc}")
