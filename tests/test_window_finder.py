@@ -7,8 +7,11 @@ from pdf_helper.window_finder import (
     Candidate,
     CaptureSource,
     FileSource,
+    default_search_dirs,
+    document_title_from_window_title,
     filename_from_title,
     find_file_by_name,
+    find_pdf_by_metadata_title,
     path_from_cmdline,
     resolve_source,
 )
@@ -103,6 +106,68 @@ def test_resolve_source_ignores_stale_browser_cmdline(tmp_path):
     # The command line names the same file the title shows: use it directly, no search needed.
     same = Candidate(1, "a.pdf - Microsoft Edge", 42, "Chrome_WidgetWin_1")
     assert resolve_source(same, cmdline=cmd, recent_dir=tmp_path / "none", search_dirs=[]) == FileSource(a)
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("Income Tax Course Self-Study Content — Mozilla Firefox", "Income Tax Course Self-Study Content"),
+        ("Annual Report 2025 - Google Chrome", "Annual Report 2025"),
+        ("Annual Report 2025 and 3 more pages - Personal - Microsoft Edge", "Annual Report 2025"),
+        ("Annual Report 2025 - Microsoft​ Edge", "Annual Report 2025"),
+        ("report.pdf - SumatraPDF", "report.pdf - SumatraPDF"),
+        ("", ""),
+    ],
+)
+def test_document_title_from_window_title(title, expected):
+    assert document_title_from_window_title(title) == expected
+
+
+def _make_pdf(path, title):
+    import pymupdf
+
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), "body text", fontsize=11)
+    doc.set_metadata({"title": title})
+    doc.save(str(path))
+    doc.close()
+
+
+def test_find_pdf_by_metadata_title_matches_newest(tmp_path):
+    docs = tmp_path / "Documents"
+    (docs / "sub").mkdir(parents=True)
+    old = docs / "old.pdf"
+    _make_pdf(old, "Income Tax Course  Self-Study Content")  # extra space: normalised away
+    new = docs / "sub" / "course.pdf"
+    _make_pdf(new, "income tax course self-study content")
+    other = docs / "other.pdf"
+    _make_pdf(other, "Something Else")
+    os.utime(old, (1, 1))
+    os.utime(new, (2, 2))
+    recent = tmp_path / "recent"
+    assert find_pdf_by_metadata_title("Income Tax Course Self-Study Content", recent, [docs]) == new
+    assert find_pdf_by_metadata_title("Not A Title", recent, [docs]) is None
+    assert find_pdf_by_metadata_title("ab", recent, [docs]) is None  # too short to trust
+
+
+def test_resolve_source_uses_metadata_title_when_title_has_no_filename(tmp_path):
+    docs = tmp_path / "Documents"
+    docs.mkdir()
+    pdf = docs / "course.pdf"
+    _make_pdf(pdf, "Income Tax Course Self-Study Content")
+    c = Candidate(1, "Income Tax Course Self-Study Content — Mozilla Firefox", 42, "MozillaWindowClass")
+    assert resolve_source(
+        c, cmdline=lambda pid: ["firefox.exe"], recent_dir=tmp_path / "none", search_dirs=[docs]
+    ) == FileSource(pdf)
+    assert resolve_source(
+        c, cmdline=lambda pid: ["firefox.exe"], recent_dir=tmp_path / "none", search_dirs=[]
+    ) == CaptureSource(1, c.title)
+
+
+def test_default_search_dirs_are_real_known_folders():
+    dirs = default_search_dirs()
+    assert len(dirs) == 3 and all(d.is_dir() for d in dirs)
+    assert [d.name.lower() for d in dirs] == ["downloads", "desktop", "documents"]
 
 
 def test_resolve_source_without_candidate_raises():

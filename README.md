@@ -54,7 +54,11 @@ desktop or Start menu. When you click **Read document** it tries, in order:
 2. The window title contains a filename such as `report.pdf`. The file is
    looked up in Windows Recent Items, then in Downloads, Desktop and
    Documents (two folders deep); the newest match wins.
-3. Otherwise the window itself is captured with the Windows `PrintWindow`
+3. The title has no filename but looks like a browser tab (Firefox, Chrome and
+   Edge show a PDF's own metadata title instead of its filename). The browser
+   suffix is stripped and the same folders are searched for a PDF whose
+   metadata title matches; the newest one wins.
+4. Otherwise the window itself is captured with the Windows `PrintWindow`
    call, which renders only that window's own contents, and the capture is
    OCR'd in memory. Nothing else on screen is captured and the image is never
    saved. If `PrintWindow` yields nothing (some GPU-rendered windows), the

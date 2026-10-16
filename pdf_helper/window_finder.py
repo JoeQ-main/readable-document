@@ -14,6 +14,25 @@ TITLE_FILENAME = re.compile(
     r'([^\\/:*?"<>|\r\n]+?\.(?:pdf|png|jpe?g|bmp|tiff?|webp|gif))(?![\w.])', re.IGNORECASE
 )
 SEARCH_DEPTH_PATTERNS = ("{name}", "*/{name}", "*/*/{name}")
+SEARCH_DEPTH = 2
+
+# Browsers title a PDF tab with the PDF's own metadata title plus a suffix such as
+# " — Mozilla Firefox", " - Google Chrome", " and 3 more pages - Personal - Microsoft Edge".
+BROWSER_SUFFIX = re.compile(
+    r"(?:\s+and\s+\d+\s+more\s+pages?)?"
+    r"(?:\s+[-–—]\s+[^-–—]+?)?"
+    r"\s+[-–—]\s+(?:Mozilla Firefox|Google Chrome|Microsoft​? Edge|Brave|Opera|Vivaldi|Chromium)"
+    r"(?:\s+\([^)]*\))?$"
+)
+MIN_TITLE_CHARS = 4
+METADATA_SEARCH_LIMIT = 300  # newest PDFs opened for a metadata-title comparison
+
+# Known folder ids, resolved through the shell so OneDrive redirection is honoured.
+KNOWN_FOLDERS = (
+    "{374DE290-123F-4565-9164-39C4925E467B}",  # Downloads
+    "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",  # Desktop
+    "{FDD39AD0-238F-46AF-ADB4-6D6C0B5C5A1C}",  # Documents
+)
 
 NO_CANDIDATE_MESSAGE = "No document window found. Open a PDF or image, then click Read document."
 
@@ -86,8 +105,77 @@ def recent_items_dir() -> Path:
 
 
 def default_search_dirs() -> list[Path]:
-    home = Path.home()
-    return [home / "Downloads", home / "Desktop", home / "Documents"]
+    """Downloads, Desktop, Documents as Windows actually locates them."""
+    try:
+        import pywintypes
+        from win32com.shell import shell
+
+        return [Path(shell.SHGetKnownFolderPath(pywintypes.IID(fid), 0, None)) for fid in KNOWN_FOLDERS]
+    except Exception:
+        home = Path.home()
+        return [home / "Downloads", home / "Desktop", home / "Documents"]
+
+
+def document_title_from_window_title(title: str) -> str:
+    """The document's own title once a browser's window-title suffix is removed."""
+    return BROWSER_SUFFIX.sub("", title).strip()
+
+
+def _normalize_title(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _recent_targets(recent_dir: Path, resolve_link: Callable[[Path], Path | None]) -> list[Path]:
+    if not recent_dir.is_dir():
+        return []
+    targets = []
+    for lnk in recent_dir.glob("*.lnk"):
+        target = resolve_link(lnk)
+        if target and target.is_file():
+            targets.append(target)
+    return targets
+
+
+def _walk_files(folder: Path, depth: int = SEARCH_DEPTH):
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        if entry.is_file():
+            yield entry
+        elif depth > 0 and entry.is_dir():
+            yield from _walk_files(entry, depth - 1)
+
+
+def find_pdf_by_metadata_title(
+    title: str,
+    recent_dir: Path,
+    search_dirs: list[Path],
+    resolve_link: Callable[[Path], Path | None] = resolve_shortcut,
+    limit: int = METADATA_SEARCH_LIMIT,
+) -> Path | None:
+    """The newest PDF under the search folders whose metadata title matches ``title``."""
+    wanted = _normalize_title(title)
+    if len(wanted) < MIN_TITLE_CHARS:
+        return None
+    candidates = {p for p in _recent_targets(recent_dir, resolve_link) if p.suffix.lower() == ".pdf"}
+    for folder in search_dirs:
+        candidates.update(p for p in _walk_files(folder) if p.suffix.lower() == ".pdf")
+    newest_first = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+    if not newest_first:
+        return None
+    import pymupdf
+
+    for path in newest_first:
+        try:
+            with pymupdf.open(path) as pdf:
+                meta_title = (pdf.metadata or {}).get("title") or ""
+        except Exception:
+            continue
+        if _normalize_title(meta_title) == wanted:
+            return path
+    return None
 
 
 def find_file_by_name(
@@ -138,12 +226,15 @@ def resolve_source(
     if from_args and (name is None or from_args.name.lower() == name.lower()):
         return FileSource(from_args)
 
+    recent = recent_dir if recent_dir is not None else recent_items_dir()
+    dirs = search_dirs if search_dirs is not None else default_search_dirs()
     if name:
-        found = find_file_by_name(
-            name,
-            recent_dir if recent_dir is not None else recent_items_dir(),
-            search_dirs if search_dirs is not None else default_search_dirs(),
-        )
+        found = find_file_by_name(name, recent, dirs)
+        if found:
+            return FileSource(found)
+    else:
+        # Browsers show a PDF's metadata title instead of its filename; match on that.
+        found = find_pdf_by_metadata_title(document_title_from_window_title(candidate.title), recent, dirs)
         if found:
             return FileSource(found)
 

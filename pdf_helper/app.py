@@ -18,7 +18,7 @@ def run_read_pass(candidate: Candidate | None) -> None:
             doc = extract_image(source.path)
     else:
         image, method = capture_window(source.hwnd)
-        label = f"captured from window: {source.title}"
+        label = f"captured from window: {source.title} — only what was visible on screen"
         if method == "screen":
             label += " (screen region capture)"
         doc = extract_ocr(image, source.title, label)

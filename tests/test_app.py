@@ -26,7 +26,10 @@ def test_run_read_pass_routes_capture_with_label(monkeypatch):
     monkeypatch.setattr(app, "extract_ocr", lambda img, title, label: calls.append((img, title, label)) or "DOC")
     monkeypatch.setattr(app, "open_document", lambda d: None)
     run_read_pass(Candidate(7, "Some Page", 2, "c"))
-    assert calls == [("IMG", "Some Page", "captured from window: Some Page (screen region capture)")]
+    assert calls == [(
+        "IMG", "Some Page",
+        "captured from window: Some Page — only what was visible on screen (screen region capture)",
+    )]
 
 
 def test_safe_read_pass_shows_user_facing_error(monkeypatch):
