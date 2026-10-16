@@ -129,11 +129,15 @@ def resolve_source(
     if candidate is None:
         raise UserFacingError(NO_CANDIDATE_MESSAGE)
 
+    # Deviation from spec §5.2 (command line first): a browser keeps the file it was
+    # launched with on its command line for its whole life, so when the title names a
+    # different file the command line is stale and the title wins. The command line is
+    # trusted on its own only when the title names no file at all.
+    name = filename_from_title(candidate.title)
     from_args = path_from_cmdline(cmdline(candidate.pid))
-    if from_args:
+    if from_args and (name is None or from_args.name.lower() == name.lower()):
         return FileSource(from_args)
 
-    name = filename_from_title(candidate.title)
     if name:
         found = find_file_by_name(
             name,

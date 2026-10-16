@@ -71,10 +71,8 @@ def remove_running_lines(pages: list[list[Line]], page_heights: list[float]) -> 
         kept = []
         for line in lines:
             in_margin = line.y0 < MARGIN_FRACTION * height or line.y1 > (1 - MARGIN_FRACTION) * height
-            if in_margin and _normalize(line.text) in running:
-                continue
-            if PAGE_NUMBER.match(line.text.strip()):
-                continue
+            if in_margin and (_normalize(line.text) in running or PAGE_NUMBER.match(line.text.strip())):
+                continue  # running header/footer or a page number; body numbers are never touched
             kept.append(line)
         cleaned.append(kept)
     return cleaned

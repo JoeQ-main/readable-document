@@ -63,6 +63,15 @@ desktop or Start menu. When you click **Read document** it tries, in order:
 The header line at the top of every reading window states which of these
 happened, and flags OCR text as possibly containing errors.
 
+When both the window title and the process command line name a file and they
+disagree (a browser keeps the file it was launched with on its command line
+forever), the title wins, because that is what you are looking at.
+
+The reading window loads its page from memory over a loopback-only HTTP
+server inside the app (random port, unguessable token per document, page
+forgotten when its window closes). This avoids WebView2's 2 MB limit on
+inline HTML, so long documents work; nothing is written to disk.
+
 Supported files: `.pdf .png .jpg .jpeg .bmp .tif .tiff .webp .gif`.
 
 Preferences live in `%APPDATA%\PDFHelper\settings.json`; unexpected errors are

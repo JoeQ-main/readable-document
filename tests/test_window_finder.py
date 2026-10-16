@@ -76,9 +76,33 @@ def test_resolve_source_order(tmp_path):
     ) == CaptureSource(1, "report.pdf - Edge")
     g = tmp_path / "other.pdf"
     g.write_bytes(b"x")
+    # Title names a different file than the command line: the title is what the user sees.
     assert resolve_source(
         c, cmdline=lambda pid: ["viewer.exe", str(g)], recent_dir=tmp_path / "none", search_dirs=[tmp_path]
+    ) == FileSource(f)
+    # Title names no file at all: the command-line file is used.
+    untitled = Candidate(1, "Document viewer", 42, "X")
+    assert resolve_source(
+        untitled, cmdline=lambda pid: ["viewer.exe", str(g)], recent_dir=tmp_path / "none", search_dirs=[]
     ) == FileSource(g)
+
+
+def test_resolve_source_ignores_stale_browser_cmdline(tmp_path):
+    # Edge keeps "msedge.exe --single-argument a.pdf" for its whole life; b.pdf is in front now.
+    a = tmp_path / "a.pdf"
+    a.write_bytes(b"x")
+    b = tmp_path / "b.pdf"
+    b.write_bytes(b"x")
+    c = Candidate(1, "b.pdf - Microsoft Edge", 42, "Chrome_WidgetWin_1")
+    cmd = lambda pid: ["msedge.exe", "--single-argument", str(a)]  # noqa: E731
+    assert resolve_source(c, cmdline=cmd, recent_dir=tmp_path / "none", search_dirs=[tmp_path]) == FileSource(b)
+    # b.pdf cannot be found anywhere: capture what is on screen rather than read a.pdf.
+    assert resolve_source(c, cmdline=cmd, recent_dir=tmp_path / "none", search_dirs=[]) == CaptureSource(
+        1, "b.pdf - Microsoft Edge"
+    )
+    # The command line names the same file the title shows: use it directly, no search needed.
+    same = Candidate(1, "a.pdf - Microsoft Edge", 42, "Chrome_WidgetWin_1")
+    assert resolve_source(same, cmdline=cmd, recent_dir=tmp_path / "none", search_dirs=[]) == FileSource(a)
 
 
 def test_resolve_source_without_candidate_raises():

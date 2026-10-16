@@ -1,7 +1,29 @@
+import urllib.error
+import urllib.request
+
 import pytest
 
 from pdf_helper import viewer
-from pdf_helper.viewer import Api, safe_filename
+from pdf_helper.viewer import Api, PageServer, safe_filename
+
+
+def test_page_server_serves_html_from_memory_by_token():
+    server = PageServer()
+    try:
+        big = "<html><body>" + ("x" * 3_000_000) + "</body></html>"  # above WebView2's 2 MB html= limit
+        url = server.publish(big)
+        assert url.startswith("http://127.0.0.1:")
+        with urllib.request.urlopen(url) as resp:
+            assert resp.headers["Content-Type"].startswith("text/html")
+            assert resp.read().decode("utf-8") == big
+        server.release(url)
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(url)
+        assert err.value.code == 404
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(url.rsplit("/", 1)[0] + "/not-a-token")
+    finally:
+        server.close()
 
 
 @pytest.mark.parametrize(

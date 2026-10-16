@@ -15,6 +15,12 @@ def test_remove_running_lines_drops_repeated_footers_and_page_numbers():
     assert all([l.text for l in p] == ["Body"] for p in out)
 
 
+def test_remove_running_lines_keeps_numeric_body_lines():
+    pages = [[L("Revenue by year", 100), L("2024", 112), L("was strong.", 124)]]
+    out = remove_running_lines(pages, [792.0])
+    assert [l.text for l in out[0]] == ["Revenue by year", "2024", "was strong."]
+
+
 def test_extract_sample_structure():
     doc = extract(FIXTURES / "sample.pdf")
     kinds = [(b.kind, b.level, b.text) for b in doc.blocks]
