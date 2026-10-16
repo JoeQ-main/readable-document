@@ -42,9 +42,9 @@ PDF_INSTRUCTION = "Transcribe this entire PDF into blocks, from the first page t
 IMAGE_INSTRUCTION = "Transcribe the document content visible in this image into blocks."
 
 MISSING_KEY_MESSAGE = (
-    "The Claude API rejected the credentials. Set the ANTHROPIC_API_KEY environment variable "
-    "to your API key (Settings → System → About → Advanced system settings → Environment Variables), "
-    "then quit and relaunch Readable Document."
+    "The Claude API rejected the credentials. Put your key in the .env file next to "
+    "ReadableDocument.pyw as ANTHROPIC_API_KEY=sk-ant-... (see .env.example), or set that "
+    "environment variable, then quit and relaunch Readable Document."
 )
 
 

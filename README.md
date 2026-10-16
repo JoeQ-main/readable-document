@@ -19,10 +19,12 @@ Python 3.14 on Windows 10 or 11, and a Claude API key.
 py -3.14 -m pip install -r requirements.txt
 ```
 
-Set the key as a user environment variable named `ANTHROPIC_API_KEY`
-(*Settings → System → About → Advanced system settings → Environment
-Variables*), then launch the app. Without a valid key every read fails with a
-message saying so; there is no local fallback.
+Copy `.env.example` to `.env` in this folder and paste your key after
+`ANTHROPIC_API_KEY=`. The file is ignored by git. The app reads it at launch;
+an `ANTHROPIC_API_KEY` already set in your environment takes precedence. The
+key sits in plain text in that file, so keep the folder private. Without a
+valid key every read fails with a message saying so; there is no local
+fallback.
 
 ## Run
 

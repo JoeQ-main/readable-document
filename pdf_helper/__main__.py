@@ -44,6 +44,9 @@ def _start_tray() -> None:
 def main() -> None:
     import webview
 
+    from .dotenv import load_dotenv
+
+    load_dotenv()  # ANTHROPIC_API_KEY from the project's .env, unless already set
     # A hidden placeholder keeps the webview loop alive while no document is open.
     webview.create_window("Readable Document", html="<p></p>", hidden=True)
     webview.start(func=_start_tray)

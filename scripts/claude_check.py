@@ -1,6 +1,7 @@
 """Live check: send the two fixtures through the real Claude API and print the blocks.
 
-Needs ANTHROPIC_API_KEY. Run from the repo root:  python scripts/claude_check.py
+Needs ANTHROPIC_API_KEY in the environment or in the project's .env file.
+Run from the repo root:  python scripts/claude_check.py
 """
 
 import sys
@@ -13,8 +14,10 @@ sys.path.insert(0, str(ROOT))
 from PIL import Image  # noqa: E402
 
 from pdf_helper.claude_reader import read_image, read_pdf  # noqa: E402
+from pdf_helper.dotenv import load_dotenv  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures"
+load_dotenv()
 
 
 def show(doc, seconds):
