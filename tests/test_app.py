@@ -22,14 +22,43 @@ def test_run_read_pass_routes_pdf(monkeypatch, tmp_path):
 def test_run_read_pass_routes_capture_with_label(monkeypatch):
     monkeypatch.setattr(app, "resolve_source", lambda c: CaptureSource(7, "Some Page"))
     monkeypatch.setattr(app, "capture_window", lambda h: ("IMG", "screen"))
+    monkeypatch.setattr(app, "recognize_image", lambda img: ["LINE"])
+    monkeypatch.setattr(app, "cached_pdf_for_screen", lambda lines: None)
     calls = []
-    monkeypatch.setattr(app, "extract_ocr", lambda img, title, label: calls.append((img, title, label)) or "DOC")
+    monkeypatch.setattr(app, "document_from_lines", lambda lines, title, label: calls.append((lines, title, label)) or "DOC")
     monkeypatch.setattr(app, "open_document", lambda d: None)
     run_read_pass(Candidate(7, "Some Page", 2, "c"))
     assert calls == [(
-        "IMG", "Some Page",
+        ["LINE"], "Some Page",
         "captured from window: Some Page — only what was visible on screen (screen region capture)",
     )]
+
+
+def test_run_read_pass_prefers_cached_pdf_matching_the_screen(monkeypatch):
+    monkeypatch.setattr(app, "resolve_source", lambda c: CaptureSource(7, "Course Page"))
+    monkeypatch.setattr(app, "capture_window", lambda h: ("IMG", "window"))
+    monkeypatch.setattr(app, "recognize_image", lambda img: ["LINE"])
+    monkeypatch.setattr(app, "cached_pdf_for_screen", lambda lines: (b"%PDF-data", "2025 Publication 17"))
+    calls = []
+    monkeypatch.setattr(app, "extract_pdf_bytes", lambda data, title, label: calls.append((data, title, label)) or "DOC")
+    opened = []
+    monkeypatch.setattr(app, "open_document", opened.append)
+    run_read_pass(Candidate(7, "Course Page", 2, "c"))
+    assert opened == ["DOC"]
+    assert calls == [(b"%PDF-data", "2025 Publication 17",
+                      "2025 Publication 17 — full document from the browser cache, matched to the page on screen")]
+
+
+def test_run_read_pass_falls_back_to_ocr_when_no_cached_pdf(monkeypatch):
+    monkeypatch.setattr(app, "resolve_source", lambda c: CaptureSource(7, "Some Page"))
+    monkeypatch.setattr(app, "capture_window", lambda h: ("IMG", "window"))
+    monkeypatch.setattr(app, "recognize_image", lambda img: ["LINE"])
+    monkeypatch.setattr(app, "cached_pdf_for_screen", lambda lines: None)
+    calls = []
+    monkeypatch.setattr(app, "document_from_lines", lambda lines, title, label: calls.append((lines, title, label)) or "DOC")
+    monkeypatch.setattr(app, "open_document", lambda d: None)
+    run_read_pass(Candidate(7, "Some Page", 2, "c"))
+    assert calls == [(["LINE"], "Some Page", "captured from window: Some Page — only what was visible on screen")]
 
 
 def test_safe_read_pass_shows_user_facing_error(monkeypatch):

@@ -1,5 +1,12 @@
 from pdf_helper.extract import pdf
-from pdf_helper.extract.pdf import body_size, extract, remove_running_lines
+from pdf_helper.extract.pdf import body_size, extract, extract_bytes, remove_running_lines
+
+
+def test_extract_bytes_matches_extract_from_path():
+    data = (FIXTURES / "sample.pdf").read_bytes() + b"\x00trailing cache metadata"
+    doc = extract_bytes(data, title="Sample", source_label="from cache")
+    assert doc.blocks == extract(FIXTURES / "sample.pdf").blocks
+    assert doc.title == "Sample" and doc.source_label == "from cache"
 from tests.helpers import FIXTURES, L
 
 

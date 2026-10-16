@@ -62,11 +62,14 @@ def recognize_image(image: Image.Image) -> list[Line]:
     return lines_from_result(result)
 
 
-def extract(image: Image.Image, title: str, source_label: str) -> Document:
-    lines = recognize_image(image)
+def document_from_lines(lines: list[Line], title: str, source_label: str) -> Document:
     if sum(len(l.text) for l in lines) < MIN_TEXT_CHARS:
         raise UserFacingError("No readable text was found.")
     return Document(title=title, source_label=source_label, blocks=group_lines(lines), via_ocr=True)
+
+
+def extract(image: Image.Image, title: str, source_label: str) -> Document:
+    return document_from_lines(recognize_image(image), title, source_label)
 
 
 def extract_file(path: Path) -> Document:

@@ -85,34 +85,44 @@ def _render_page(page: pymupdf.Page) -> Image.Image:
 
 def extract(path: Path) -> Document:
     with pymupdf.open(path) as pdf:
-        text_pages: list[list[Line] | None] = []
-        page_heights: list[float] = []
-        scanned: list[pymupdf.Page] = []
-        for page in pdf:
-            lines = page_lines(page)
-            page_heights.append(page.rect.height)
-            if sum(len(l.text) for l in lines) < SCANNED_PAGE_MAX_CHARS:
-                text_pages.append(None)
-                scanned.append(page)
-            else:
-                text_pages.append(lines)
+        return _document(pdf, title=path.stem, source_label=str(path))
 
-        present = [lines for lines in text_pages if lines is not None]
-        present_heights = [h for lines, h in zip(text_pages, page_heights) if lines is not None]
-        cleaned = iter(remove_running_lines(present, present_heights))
-        document_body = body_size([l for lines in present for l in lines])
 
-        via_ocr = False
-        per_page: list[list] = []
-        scanned_iter = iter(scanned)
-        for lines in text_pages:
-            if lines is None:
-                via_ocr = True
-                per_page.append(group_lines(ocr_lines(_render_page(next(scanned_iter)))))
-            else:
-                per_page.append(group_lines(next(cleaned), body_size=document_body))
+def extract_bytes(data: bytes, title: str, source_label: str) -> Document:
+    """Extract from PDF bytes held in memory (e.g. a browser cache entry; trailing bytes are fine)."""
+    with pymupdf.open(stream=data, filetype="pdf") as pdf:
+        return _document(pdf, title=title, source_label=source_label)
+
+
+def _document(pdf: pymupdf.Document, title: str, source_label: str) -> Document:
+    text_pages: list[list[Line] | None] = []
+    page_heights: list[float] = []
+    scanned: list[pymupdf.Page] = []
+    for page in pdf:
+        lines = page_lines(page)
+        page_heights.append(page.rect.height)
+        if sum(len(l.text) for l in lines) < SCANNED_PAGE_MAX_CHARS:
+            text_pages.append(None)
+            scanned.append(page)
+        else:
+            text_pages.append(lines)
+
+    present = [lines for lines in text_pages if lines is not None]
+    present_heights = [h for lines, h in zip(text_pages, page_heights) if lines is not None]
+    cleaned = iter(remove_running_lines(present, present_heights))
+    document_body = body_size([l for lines in present for l in lines])
+
+    via_ocr = False
+    per_page: list[list] = []
+    scanned_iter = iter(scanned)
+    for lines in text_pages:
+        if lines is None:
+            via_ocr = True
+            per_page.append(group_lines(ocr_lines(_render_page(next(scanned_iter)))))
+        else:
+            per_page.append(group_lines(next(cleaned), body_size=document_body))
 
     blocks = merge_paragraph_runs(per_page)
     if not blocks:
         raise UserFacingError("No readable text was found.")
-    return Document(title=path.stem, source_label=str(path), blocks=blocks, via_ocr=via_ocr)
+    return Document(title=title, source_label=source_label, blocks=blocks, via_ocr=via_ocr)

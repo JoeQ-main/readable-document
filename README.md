@@ -58,7 +58,12 @@ desktop or Start menu. When you click **Read document** it tries, in order:
    Edge show a PDF's own metadata title instead of its filename). The browser
    suffix is stripped and the same folders are searched for a PDF whose
    metadata title matches; the newest one wins.
-4. Otherwise the window itself is captured with the Windows `PrintWindow`
+4. A PDF opened straight from the web exists only in the browser's cache. After
+   capturing the window (next step), the OCR'd screen text is compared with
+   the PDFs in Firefox's local cache; if one contains those lines, the whole
+   cached document is read instead of just the visible page. This is a local
+   file read; nothing is fetched from the network.
+5. Otherwise the window itself is captured with the Windows `PrintWindow`
    call, which renders only that window's own contents, and the capture is
    OCR'd in memory. Nothing else on screen is captured and the image is never
    saved. If `PrintWindow` yields nothing (some GPU-rendered windows), the
