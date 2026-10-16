@@ -148,8 +148,16 @@ class ReadingWindow:
         self.heading_count += sum(1 for b in blocks if b.kind == "heading")
         self._window.evaluate_js(f"appendContent({json.dumps(body)}, {json.dumps(outline)})")
 
-    def set_progress(self, text: str) -> None:
-        self._window.evaluate_js(f"setProgress({json.dumps(text)})")
+    def set_progress(self, text: str, fraction: float | None = None) -> None:
+        """Bottom progress bar: fraction 0..1 fills it, None shows an indeterminate
+        sweep, and empty text with no fraction hides it."""
+        self._window.evaluate_js(f"setProgress({json.dumps(text)}, {json.dumps(fraction)})")
+
+    def set_source(self, text: str) -> None:
+        self._window.evaluate_js(f"setSource({json.dumps(text)})")
+
+    def close(self) -> None:
+        self._window.destroy()
 
 
 def open_document(doc: Document) -> ReadingWindow:

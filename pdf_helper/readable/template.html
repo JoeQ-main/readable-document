@@ -74,8 +74,18 @@
 
   .source { font-size: 13px; color: var(--muted); margin-bottom: 2.5rem; line-height: 1.5; }
   .source .ocr-note { display: inline-block; margin-left: .75em; padding: 1px 8px; border-radius: 999px; background: var(--tint); color: var(--fg); }
-  .source .progress { display: block; margin-top: .4em; color: var(--accent); font-weight: 600; }
-  .source .progress:empty { display: none; }
+  .progressbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+    background: var(--panel); border-top: 1px solid var(--border); font-size: 13px; color: var(--muted);
+  }
+  .progressbar[hidden] { display: none; }
+  .progressbar .track { position: relative; flex: 1; height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .progressbar .fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 999px; background: var(--accent); transition: width .4s ease; }
+  .progressbar .fill.indeterminate { width: 30%; animation: sweep 1.4s ease-in-out infinite; }
+  .progressbar .fill.stopped { background: #C0392B; }
+  .progressbar .plabel { white-space: nowrap; }
+  @keyframes sweep { 0% { left: -30%; } 100% { left: 100%; } }
 
   p { margin: 1.1em 0; }
   h1, h2, h3 {
@@ -115,11 +125,15 @@
   </ol>
 </nav>
 <main>
-  <header class="source"><span class="label">{{SOURCE}}</span>{{OCR_NOTE}}<span class="progress" id="progress"></span></header>
+  <header class="source"><span class="label" id="source">{{SOURCE}}</span>{{OCR_NOTE}}</header>
   <div id="content">
 {{BODY}}
   </div>
 </main>
+<div class="progressbar" id="progressbar" hidden>
+  <div class="track"><div class="fill" id="progressfill"></div></div>
+  <span class="plabel" id="progresslabel"></span>
+</div>
 <script>
 (function () {
   var INITIAL = {{PREFS_JSON}};
@@ -258,8 +272,28 @@
     }
     if (prefs.bionic) bionic(true);  // only touches elements not yet processed
   };
-  window.setProgress = function (text) {
-    document.getElementById('progress').textContent = text || '';
+  // Bottom progress bar for the Claude read: a fraction fills it, null sweeps
+  // (indeterminate), and empty text with null hides it.
+  window.setProgress = function (text, fraction) {
+    var bar = document.getElementById('progressbar');
+    var fill = document.getElementById('progressfill');
+    var label = document.getElementById('progresslabel');
+    if (!text && fraction == null) { bar.hidden = true; return; }
+    bar.hidden = false;
+    label.textContent = text || '';
+    fill.classList.toggle('stopped', /^Reading stopped/.test(text || ''));
+    if (fraction == null) {
+      fill.classList.add('indeterminate');
+      fill.style.width = '';
+      fill.style.left = '';
+    } else {
+      fill.classList.remove('indeterminate');
+      fill.style.left = '0';
+      fill.style.width = Math.max(0, Math.min(1, fraction)) * 100 + '%';
+    }
+  };
+  window.setSource = function (text) {
+    document.getElementById('source').textContent = text || '';
   };
 
   prefs = readBaked();

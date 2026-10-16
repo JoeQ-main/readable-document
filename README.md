@@ -36,8 +36,10 @@ in `shell:startup` to launch it at sign-in). A page icon appears in the tray.
 2. Click the tray icon, then **Read document** (a single left-click on the icon
    does the same). A notification confirms the read has started; extra clicks
    while it runs are ignored.
-3. A window titled *Readable: name* opens when Claude is done, usually within
-   a minute, longer for long PDFs. Toolbar buttons change text size, line
+3. A window titled *Readable: name* opens at once with a progress bar along
+   the bottom: a sweeping bar while a request is in flight, a filling bar
+   showing pages read for long PDFs, and the text arrives as Claude returns
+   it, usually within a minute for a capture. Toolbar buttons change text size, line
    spacing, column width, dark mode, number highlighting and "bionic" bolding.
    Your choices are remembered for the next document.
 4. **Save** writes the current view as `name-readable.html` to a location you

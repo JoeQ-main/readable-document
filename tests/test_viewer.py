@@ -23,13 +23,26 @@ def test_reading_window_appends_rendered_blocks_with_continuing_heading_ids():
     assert window.heading_count == 3
 
 
-def test_reading_window_sets_progress_text():
+def test_reading_window_sets_progress_text_and_fraction():
     calls = []
     window = ReadingWindow(SimpleNamespace(evaluate_js=lambda js: calls.append(js)))
-    window.set_progress("Read pages 1–15 of 142…")
-    assert calls == ['setProgress("Read pages 1\\u201315 of 142\\u2026")']
+    window.set_progress("Reading with Claude…")  # no fraction: indeterminate bar
+    assert calls == ['setProgress("Reading with Claude\\u2026", null)']
+    window.set_progress("Read pages 1–15 of 142…", 15 / 142)
+    assert calls[-1] == f'setProgress("Read pages 1\\u201315 of 142\\u2026", {15 / 142})'
     window.set_progress("")
-    assert calls[-1] == 'setProgress("")'
+    assert calls[-1] == 'setProgress("", null)'
+
+
+def test_reading_window_updates_source_line_and_closes():
+    calls = []
+    destroyed = []
+    fake = SimpleNamespace(evaluate_js=lambda js: calls.append(js), destroy=lambda: destroyed.append(True))
+    window = ReadingWindow(fake)
+    window.set_source("C:/x.pdf — read by Claude (m), from cache")
+    assert calls == ['setSource("C:/x.pdf \\u2014 read by Claude (m), from cache")']
+    window.close()
+    assert destroyed == [True]
 
 
 def test_page_server_serves_html_from_memory_by_token():
