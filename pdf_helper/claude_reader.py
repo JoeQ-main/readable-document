@@ -4,6 +4,7 @@ items as structured JSON that the reading window renders."""
 
 import base64
 import io
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Iterator, Literal
 
@@ -14,16 +15,24 @@ from pydantic import BaseModel
 from .errors import UserFacingError
 from .extract.model import Block, Document
 
-MODEL = "claude-opus-5-5"
-EFFORT = "medium"
+DEFAULT_MODEL = "claude-opus-5-5"
+MODEL_ENV_VAR = "READABLE_MODEL"  # set in .env to use another model, e.g. claude-sonnet-5-5
+EFFORT = "low"  # transcription output dominates the cost; measured: effort changes neither speed nor quality
 MAX_OUTPUT_TOKENS = 64_000
 REQUEST_TIMEOUT_SECONDS = 1800.0  # long documents take minutes; the SDK guard needs an explicit timeout
 MAX_IMAGE_EDGE = 1568  # the API downsizes beyond this anyway; do it here so the upload is small
 MAX_IMAGE_BYTES = 4_500_000
 MAX_PDF_PAGES = 600
 MAX_PDF_BYTES = 30 * 1024 * 1024
-CHUNK_PAGES = 15  # pages per request: keeps each transcription well under the output limit
-MAX_WORKERS = 4  # chunk requests in flight at once
+# Measured on Opus 5.5: a dense page is ~3,200 output tokens at ~150 tokens/s, so 6 pages
+# is ~2 minutes per request and stays far below the output cap; 8 in flight keeps a
+# 140-page document under ten minutes with the first pages on screen after the first chunk.
+CHUNK_PAGES = 6
+MAX_WORKERS = 8
+
+
+def model() -> str:
+    return os.environ.get(MODEL_ENV_VAR, "").strip() or DEFAULT_MODEL
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 SYSTEM_PROMPT = """You transcribe documents for a reading tool that restyles them for easier reading.
@@ -109,7 +118,7 @@ def _ask(content: list[dict]) -> ParsedDocument:
     client = client_factory().with_options(timeout=REQUEST_TIMEOUT_SECONDS)
     try:
         response = client.beta.messages.parse(
-            model=MODEL,
+            model=model(),
             max_tokens=MAX_OUTPUT_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
@@ -174,7 +183,7 @@ class ChunkJoiner:
 def _document(blocks: list[Block], title: str, source_label: str, via_image: bool) -> Document:
     if not blocks:
         raise UserFacingError("No readable text was found.")
-    return Document(title=title, source_label=f"{source_label} — read by Claude ({MODEL})",
+    return Document(title=title, source_label=f"{source_label} — read by Claude ({model()})",
                     blocks=blocks, via_ocr=via_image)
 
 

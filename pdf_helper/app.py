@@ -4,7 +4,7 @@ from PIL import Image
 
 from .browser_cache import cached_pdf_for_screen
 from .capture import capture_window
-from .claude_reader import MODEL, ChunkJoiner, iter_pdf_blocks, read_image
+from .claude_reader import ChunkJoiner, iter_pdf_blocks, model, read_image
 from .errors import UserFacingError, log_exception, show_error
 from .extract.model import Document
 from .viewer import open_document
@@ -15,7 +15,7 @@ def show_pdf_progressively(data: bytes, title: str, source_label: str) -> None:
     """Open the reading window after the first chunk and fill it as later chunks arrive."""
     joiner = ChunkJoiner()
     window = None
-    label = f"{source_label} — read by Claude ({MODEL})"
+    label = f"{source_label} — read by Claude ({model()})"
 
     def deliver(blocks):
         nonlocal window

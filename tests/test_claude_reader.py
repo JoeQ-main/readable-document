@@ -8,7 +8,7 @@ from PIL import Image
 
 from pdf_helper import claude_reader
 from pdf_helper.claude_reader import (
-    MODEL,
+    DEFAULT_MODEL,
     ChunkJoiner,
     ParsedBlock,
     ParsedDocument,
@@ -120,12 +120,19 @@ def test_read_pdf_sends_document_and_maps_blocks(fake):
     assert doc.blocks == [Block("heading", "Intro", 1), Block("paragraph", "Body text."), Block("list_item", "one")]
     assert doc.title == "report" and doc.source_label.startswith("C:/x/report.pdf") and doc.via_ocr is False
     call = fake.messages.calls[0]
-    assert call["model"] == MODEL and call["output_format"] is ParsedDocument
+    assert call["model"] == DEFAULT_MODEL and call["output_format"] is ParsedDocument
     content = call["messages"][0]["content"]
     assert content[0]["type"] == "document" and content[0]["source"]["media_type"] == "application/pdf"
     assert base64.standard_b64decode(content[0]["source"]["data"]) == data
     assert content[-1]["type"] == "text"
     assert fake.options["timeout"] >= 600
+
+
+def test_model_override_from_environment(fake, monkeypatch):
+    monkeypatch.setenv("READABLE_MODEL", "claude-sonnet-5-5")
+    doc = read_image(Image.new("RGB", (300, 300), "white"), "t", "s")
+    assert fake.messages.calls[0]["model"] == "claude-sonnet-5-5"
+    assert "claude-sonnet-5-5" in doc.source_label
 
 
 def test_read_image_sends_png_and_marks_transcribed(fake):

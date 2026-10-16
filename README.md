@@ -51,10 +51,15 @@ in `shell:startup` to launch it at sign-in). A page icon appears in the tray.
   work the same way.
 - An image file, or a capture of the window in front, is sent as one image,
   scaled to at most 1568 px on its long side.
-- The model is Claude Opus 5.5. A one-page capture costs a fraction of a cent;
-  a 100-page PDF is roughly a dollar or two, mostly for the transcribed output.
-  Server-side refusal fallback is enabled, so a safety decline on one model is
-  retried on another inside the same request.
+- The model is Claude Opus 5.5 unless `READABLE_MODEL` in `.env` names
+  another (see `.env.example`). Server-side refusal fallback is enabled, so a
+  safety decline on one model is retried on another inside the same request.
+- Measured on Opus 5.5: a screen capture takes about 15 seconds and costs a
+  few cents. A dense PDF page produces about 3,200 output tokens, so a
+  140-page publication is roughly 450k output tokens, about $12, and takes
+  under ten minutes. Long PDFs are read in 6-page chunks, eight at a time; the
+  reading window opens after the first chunk and fills in as the rest arrive,
+  with a progress line in the header.
 
 ## How it finds the document, and what it captures
 
